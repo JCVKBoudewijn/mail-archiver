@@ -1,10 +1,35 @@
 const path = require("path");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
-const devCerts = require("office-addin-dev-certs");
 
 module.exports = async (env, argv) => {
   const isDev = argv.mode === "development";
+
+  const devServerOptions = isDev
+    ? {
+        devServer: {
+          port: 3000,
+          server: {
+            type: "https",
+            options: await require("office-addin-dev-certs").getHttpsServerOptions(),
+          },
+          static: [
+            {
+              directory: path.join(__dirname, "assets"),
+              publicPath: "/assets",
+            },
+            {
+              directory: path.join(__dirname),
+              publicPath: "/",
+              serveIndex: false,
+            },
+          ],
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+          },
+        },
+      }
+    : {};
 
   return {
     entry: {
@@ -44,27 +69,7 @@ module.exports = async (env, argv) => {
         ],
       }),
     ],
-    devServer: {
-      port: 3000,
-      server: {
-        type: "https",
-        options: await devCerts.getHttpsServerOptions(),
-      },
-      static: [
-        {
-          directory: path.join(__dirname, "assets"),
-          publicPath: "/assets",
-        },
-        {
-          directory: path.join(__dirname),
-          publicPath: "/",
-          serveIndex: false,
-        },
-      ],
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-      },
-    },
+    ...devServerOptions,
     devtool: isDev ? "source-map" : false,
   };
 };
