@@ -1,0 +1,287 @@
+/**
+ * Microsoft Graph API service.
+ * Alle communicatie met Graph API voor SharePoint en Mail operaties.
+ */
+
+import { getAccessToken, clearTokenCache } from "./auth";
+import { GRAPH_BASE_URL } from "../config";
+import type {
+  SharePointSite,
+  ProjectFolder,
+  SubFolder,
+  MailFolder,
+} from "../types";
+
+/** Generieke Graph API call met automatische token refresh */
+async function graphFetch(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<any> {
+  const token = await getAccessToken();
+
+  const response = await fetch(`${GRAPH_BASE_URL}${endpoint}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+  if (response.status === 401) {
+    // Token verlopen, cache wissen en opnieuw proberen
+    clearTokenCache();
+    const newToken = await getAccessToken();
+    const retryResponse = await fetch(`${GRAPH_BASE_URL}${endpoint}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${newToken}`,
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    });
+
+    if (!retryResponse.ok) {
+      throw new Error(`Graph API fout: ${retryResponse.status} ${retryResponse.statusText}`);
+    }
+    return retryResponse.status === 204 ? null : retryResponse.json();
+  }
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Graph API fout: ${response.status} - ${errorBody}`);
+  }
+
+  return response.status === 204 ? null : response.json();
+}
+
+// ============================================================
+// SharePoint Sites
+// ============================================================
+
+/** Zoek SharePoint sites binnen de organisatie */
+export async function searchSites(query: string): Promise<SharePointSite[]> {
+  const data = await graphFetch(
+    `/sites?search=${encodeURIComponent(query)}&$select=id,displayName,webUrl&$top=20`
+  );
+  return (data.value || []).map((site: any) => ({
+    id: site.id,
+    displayName: site.displayName,
+    webUrl: site.webUrl,
+  }));
+}
+
+/** Haal een specifieke site op via hostname en pad */
+export async function getSiteByHostname(
+  hostname: string,
+  path: string = ""
+): Promise<SharePointSite> {
+  const siteUrl = path
+    ? `/sites/${hostname}:/${path}`
+    : `/sites/${hostname}`;
+  const data = await graphFetch(`${siteUrl}?$select=id,displayName,webUrl`);
+  return {
+    id: data.id,
+    displayName: data.displayName,
+    webUrl: data.webUrl,
+  };
+}
+
+// ============================================================
+// SharePoint Folders (Projecten & Submappen)
+// ============================================================
+
+/**
+ * Haal projectmappen op vanuit een specifiek pad op een SharePoint site.
+ * Filtert op het YY-XXX projectnummer formaat.
+ */
+export async function getProjectFolders(
+  siteId: string,
+  basePath: string
+): Promise<ProjectFolder[]> {
+  const encodedPath = encodeURIComponent(basePath);
+  const data = await graphFetch(
+    `/sites/${siteId}/drive/root:/${encodedPath}:/children?$filter=folder ne null&$select=id,name,webUrl&$top=500`
+  );
+
+  return (data.value || [])
+    .filter((item: any) => item.folder !== undefined)
+    .map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      webUrl: item.webUrl,
+    }))
+    .sort((a: ProjectFolder, b: ProjectFolder) => b.name.localeCompare(a.name));
+}
+
+/** Haal submappen op binnen een projectfolder */
+export async function getSubFolders(
+  siteId: string,
+  folderId: string
+): Promise<SubFolder[]> {
+  const data = await graphFetch(
+    `/sites/${siteId}/drive/items/${folderId}/children?$filter=folder ne null&$select=id,name,webUrl&$top=100`
+  );
+
+  return (data.value || [])
+    .filter((item: any) => item.folder !== undefined)
+    .map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      webUrl: item.webUrl,
+    }))
+    .sort((a: SubFolder, b: SubFolder) => a.name.localeCompare(b.name));
+}
+
+// ============================================================
+// E-mail ophalen en uploaden naar SharePoint
+// ============================================================
+
+/** Haal de MIME content (.eml) van een e-mail op */
+export async function getMailMimeContent(messageId: string): Promise<Blob> {
+  const token = await getAccessToken();
+  const response = await fetch(
+    `${GRAPH_BASE_URL}/me/messages/${messageId}/$value`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Kan e-mail niet ophalen: ${response.status}`);
+  }
+
+  return response.blob();
+}
+
+/**
+ * Upload een bestand naar een specifieke SharePoint folder.
+ * Gebruikt een upload session voor bestanden > 4MB.
+ */
+export async function uploadToSharePoint(
+  siteId: string,
+  folderId: string,
+  fileName: string,
+  content: Blob
+): Promise<string> {
+  const sanitizedName = sanitizeFileName(fileName);
+
+  if (content.size < 4_000_000) {
+    // Kleine bestanden: directe upload
+    const token = await getAccessToken();
+    const response = await fetch(
+      `${GRAPH_BASE_URL}/sites/${siteId}/drive/items/${folderId}:/${encodeURIComponent(sanitizedName)}:/content`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/octet-stream",
+        },
+        body: content,
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Upload mislukt: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.webUrl;
+  }
+
+  // Grote bestanden: upload session
+  const sessionData = await graphFetch(
+    `/sites/${siteId}/drive/items/${folderId}:/${encodeURIComponent(sanitizedName)}:/createUploadSession`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        item: { "@microsoft.graph.conflictBehavior": "rename" },
+      }),
+    }
+  );
+
+  const uploadUrl = sessionData.uploadUrl;
+  const token = await getAccessToken();
+  const arrayBuffer = await content.arrayBuffer();
+  const chunkSize = 3_276_800; // ~3.1 MB chunks
+  let offset = 0;
+
+  while (offset < arrayBuffer.byteLength) {
+    const end = Math.min(offset + chunkSize, arrayBuffer.byteLength);
+    const chunk = arrayBuffer.slice(offset, end);
+
+    const uploadResponse = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Length": chunk.byteLength.toString(),
+        "Content-Range": `bytes ${offset}-${end - 1}/${arrayBuffer.byteLength}`,
+      },
+      body: chunk,
+    });
+
+    if (!uploadResponse.ok && uploadResponse.status !== 202) {
+      throw new Error(`Upload chunk mislukt bij offset ${offset}`);
+    }
+
+    offset = end;
+  }
+
+  return sanitizedName;
+}
+
+// ============================================================
+// Outlook Mail Folders (voor archivering)
+// ============================================================
+
+/** Haal alle mailmappen op (voor de archief-selector) */
+export async function getMailFolders(): Promise<MailFolder[]> {
+  const data = await graphFetch(
+    `/me/mailFolders?$select=id,displayName,parentFolderId&$top=100`
+  );
+
+  return (data.value || []).map((folder: any) => ({
+    id: folder.id,
+    displayName: folder.displayName,
+    parentFolderId: folder.parentFolderId,
+  }));
+}
+
+/** Verplaats een e-mail naar een andere map */
+export async function moveMailToFolder(
+  messageId: string,
+  destinationFolderId: string
+): Promise<void> {
+  await graphFetch(`/me/messages/${messageId}/move`, {
+    method: "POST",
+    body: JSON.stringify({ destinationId: destinationFolderId }),
+  });
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+
+/** Verwijder ongeldige tekens uit bestandsnamen */
+function sanitizeFileName(name: string): string {
+  return name.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").substring(0, 250);
+}
+
+/**
+ * Genereer de bestandsnaam voor een e-mail.
+ * Format: [YYYY-MM-DD-HHmm] - [Onderwerp].eml
+ */
+export function generateEmailFileName(
+  subject: string,
+  dateReceived: Date
+): string {
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  const y = dateReceived.getFullYear();
+  const m = pad(dateReceived.getMonth() + 1);
+  const d = pad(dateReceived.getDate());
+  const hh = pad(dateReceived.getHours());
+  const mm = pad(dateReceived.getMinutes());
+
+  const cleanSubject = subject.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim();
+  return `${y}-${m}-${d}-${hh}${mm} - ${cleanSubject}.eml`;
+}

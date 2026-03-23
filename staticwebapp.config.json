@@ -1,0 +1,9 @@
+{
+  "navigationFallback": {
+    "rewrite": "/taskpane.html",
+    "exclude": ["/assets/*", "/*.js", "/*.map", "/*.css"]
+  },
+  "mimeTypes": {
+    ".xml": "application/xml"
+  }
+}
