@@ -146,7 +146,7 @@
           <Scope>openid</Scope>
           <Scope>profile</Scope>
           <Scope>Files.ReadWrite.All</Scope>
-          <Scope>Sites.ReadWrite.All</Scope>
+          <Scope>Sites.Read.All</Scope>
           <Scope>Mail.ReadWrite</Scope>
         </Scopes>
       </WebApplicationInfo>
