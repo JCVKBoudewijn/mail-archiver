@@ -14,9 +14,14 @@ const GRAPH_SCOPES = [
 
 const TOKEN_KEY = "mailsp_token";
 const TOKEN_EXPIRY_KEY = "mailsp_token_expiry";
+const TOKEN_SOURCE_KEY = "mailsp_token_source";
 
 let cachedToken: string | null = sessionStorage.getItem(TOKEN_KEY);
 let tokenExpiry: number = Number(sessionStorage.getItem(TOKEN_EXPIRY_KEY) || "0");
+
+/** Houdt bij of het SSO-token al gefaald heeft voor Graph (401).
+ *  Als dat zo is, slaan we SSO over en gaan direct naar PKCE. */
+let ssoFailedForGraph: boolean = false;
 
 // ── PKCE helpers ──────────────────────────────────────────────────────────────
 
@@ -51,6 +56,12 @@ export async function getAccessToken(): Promise<string> {
     return cachedToken;
   }
 
+  // Als SSO-token eerder 401 gaf op Graph, sla SSO over en gebruik direct PKCE
+  if (ssoFailedForGraph) {
+    console.log("[auth] SSO eerder gefaald voor Graph, gebruik PKCE fallback");
+    return await fallbackToDialogAuth();
+  }
+
   try {
     const bootstrapToken = await Office.auth.getAccessToken({
       allowSignInPrompt: true,
@@ -62,6 +73,7 @@ export async function getAccessToken(): Promise<string> {
     tokenExpiry = Date.now() + 3_600_000;
     sessionStorage.setItem(TOKEN_KEY, bootstrapToken);
     sessionStorage.setItem(TOKEN_EXPIRY_KEY, tokenExpiry.toString());
+    sessionStorage.setItem(TOKEN_SOURCE_KEY, "sso");
     return bootstrapToken;
   } catch (error: any) {
     const code = error?.code;
@@ -136,6 +148,7 @@ async function fallbackToDialogAuth(): Promise<string> {
               tokenExpiry = Date.now() + 3_600_000;
               sessionStorage.setItem(TOKEN_KEY, token);
               sessionStorage.setItem(TOKEN_EXPIRY_KEY, tokenExpiry.toString());
+              sessionStorage.setItem(TOKEN_SOURCE_KEY, "pkce");
               resolve(token);
             } catch (e: any) {
               reject(new Error(e.message || "Ongeldig antwoord van login dialog."));
@@ -191,4 +204,18 @@ export function clearTokenCache(): void {
   tokenExpiry = 0;
   sessionStorage.removeItem(TOKEN_KEY);
   sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
+  sessionStorage.removeItem(TOKEN_SOURCE_KEY);
+}
+
+/**
+ * Markeer dat het SSO-token niet werkt voor Graph API (401).
+ * Volgende getAccessToken() calls zullen SSO overslaan en direct PKCE gebruiken.
+ */
+export function markSsoFailedForGraph(): void {
+  ssoFailedForGraph = true;
+}
+
+/** Geeft aan of het huidige token via SSO is verkregen */
+export function isTokenFromSso(): boolean {
+  return sessionStorage.getItem(TOKEN_SOURCE_KEY) === "sso";
 }

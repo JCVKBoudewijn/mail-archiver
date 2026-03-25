@@ -3,7 +3,7 @@
  * Alle communicatie met Graph API voor SharePoint en Mail operaties.
  */
 
-import { getAccessToken, clearTokenCache } from "./auth";
+import { getAccessToken, clearTokenCache, markSsoFailedForGraph, isTokenFromSso } from "./auth";
 import { GRAPH_BASE_URL } from "../config";
 import type {
   SharePointSite,
@@ -31,7 +31,14 @@ async function graphFetch(
   });
 
   if (response.status === 401) {
-    // Token verlopen, cache wissen en opnieuw proberen
+    // Als het token via SSO was verkregen, is het waarschijnlijk een bootstrap
+    // token dat niet werkt voor Graph (geen server-side OBO exchange).
+    // Markeer SSO als gefaald zodat volgende calls direct PKCE gebruiken.
+    if (isTokenFromSso()) {
+      console.warn("[graphFetch] SSO-token gaf 401 op Graph – schakel over naar PKCE");
+      markSsoFailedForGraph();
+    }
+
     clearTokenCache();
     const newToken = await getAccessToken();
     const retryResponse = await fetch(`${GRAPH_BASE_URL}${endpoint}`, {
