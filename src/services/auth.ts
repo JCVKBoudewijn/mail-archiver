@@ -1,7 +1,10 @@
 /**
  * SSO Authenticatie service.
  * Gebruikt Office.js SSO om een access token te verkrijgen voor Microsoft Graph.
+ * Fallback: PKCE authorization code flow via Office dialog.
  */
+
+const CLIENT_ID = "06e23f21-f875-4425-aca3-ccd0b06bb24f";
 
 const GRAPH_SCOPES = [
   "Files.ReadWrite.All",
@@ -12,30 +15,48 @@ const GRAPH_SCOPES = [
 let cachedToken: string | null = null;
 let tokenExpiry: number = 0;
 
+// ── PKCE helpers ──────────────────────────────────────────────────────────────
+
+function base64UrlEncode(buffer: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+async function generateCodeVerifier(): Promise<string> {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return base64UrlEncode(array.buffer);
+}
+
+async function generateCodeChallenge(verifier: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(verifier);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return base64UrlEncode(digest);
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
 /**
  * Verkrijg een access token via Office SSO.
- * Probeert eerst SSO; bij falen wordt een consent dialog getoond.
+ * Probeert eerst SSO; bij falen wordt PKCE dialog flow gebruikt.
  */
 export async function getAccessToken(): Promise<string> {
-  // Return cached token als deze nog geldig is (5 min marge)
   if (cachedToken && Date.now() < tokenExpiry - 300_000) {
     return cachedToken;
   }
 
   try {
-    // Stap 1: Verkrijg SSO bootstrap token van Office
     const bootstrapToken = await Office.auth.getAccessToken({
       allowSignInPrompt: true,
       allowConsentPrompt: true,
       forMSGraphAccess: true,
     });
 
-    // Het SSO token kan direct gebruikt worden voor Graph API calls
-    // als de admin consent heeft gegeven voor de benodigde scopes.
     cachedToken = bootstrapToken;
-    // SSO tokens zijn typisch 1 uur geldig
     tokenExpiry = Date.now() + 3_600_000;
-
     return bootstrapToken;
   } catch (error: any) {
     const code = error?.code;
@@ -57,18 +78,26 @@ export async function getAccessToken(): Promise<string> {
 }
 
 /**
- * Fallback: gebruik MSAL dialog voor consent/login.
- * Dit opent een popup waar de gebruiker kan inloggen.
+ * Fallback: PKCE authorization code flow via Office dialog.
  */
 async function fallbackToDialogAuth(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const dialogUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?` +
-      `client_id=${encodeURIComponent("06e23f21-f875-4425-aca3-ccd0b06bb24f")}` +
-      `&response_type=token` +
-      `&scope=${encodeURIComponent(GRAPH_SCOPES.join(" "))}` +
-      `&redirect_uri=${encodeURIComponent(window.location.origin + "/auth-callback.html")}` +
-      `&prompt=consent`;
+  const verifier = await generateCodeVerifier();
+  const challenge = await generateCodeChallenge(verifier);
+  const state = base64UrlEncode(crypto.getRandomValues(new Uint8Array(16)).buffer);
+  const redirectUri = window.location.origin + "/auth-callback.html";
 
+  const dialogUrl =
+    `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?` +
+    `client_id=${encodeURIComponent(CLIENT_ID)}` +
+    `&response_type=code` +
+    `&scope=${encodeURIComponent(GRAPH_SCOPES.join(" ") + " offline_access")}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&code_challenge=${challenge}` +
+    `&code_challenge_method=S256` +
+    `&state=${state}` +
+    `&prompt=consent`;
+
+  return new Promise((resolve, reject) => {
     Office.context.ui.displayDialogAsync(
       dialogUrl,
       { height: 60, width: 40 },
@@ -82,19 +111,28 @@ async function fallbackToDialogAuth(): Promise<string> {
 
         dialog.addEventHandler(
           Office.EventType.DialogMessageReceived,
-          (arg: any) => {
+          async (arg: any) => {
             dialog.close();
             try {
               const message = JSON.parse(arg.message);
-              if (message.accessToken) {
-                cachedToken = message.accessToken;
-                tokenExpiry = Date.now() + 3_600_000;
-                resolve(message.accessToken);
-              } else {
-                reject(new Error("Geen access token ontvangen."));
+
+              if (message.error) {
+                reject(new Error(`Login mislukt: ${message.errorDescription || message.error}`));
+                return;
               }
-            } catch {
-              reject(new Error("Ongeldig antwoord van login dialog."));
+
+              if (!message.code) {
+                reject(new Error("Geen authorization code ontvangen."));
+                return;
+              }
+
+              // Wissel de code in voor een access token
+              const token = await exchangeCodeForToken(message.code, verifier, redirectUri);
+              cachedToken = token;
+              tokenExpiry = Date.now() + 3_600_000;
+              resolve(token);
+            } catch (e: any) {
+              reject(new Error(e.message || "Ongeldig antwoord van login dialog."));
             }
           }
         );
@@ -108,6 +146,37 @@ async function fallbackToDialogAuth(): Promise<string> {
       }
     );
   });
+}
+
+async function exchangeCodeForToken(
+  code: string,
+  verifier: string,
+  redirectUri: string
+): Promise<string> {
+  const body = new URLSearchParams({
+    client_id: CLIENT_ID,
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: redirectUri,
+    code_verifier: verifier,
+  });
+
+  const response = await fetch(
+    "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    }
+  );
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error_description || `Token uitwisseling mislukt (${response.status})`);
+  }
+
+  const data = await response.json();
+  return data.access_token;
 }
 
 /** Reset de token cache (bijv. bij logout of token error) */
