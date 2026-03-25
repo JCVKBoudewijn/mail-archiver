@@ -67,6 +67,7 @@ module.exports = async (env, argv) => {
           { from: "assets", to: "assets" },
           { from: "manifest.xml", to: "manifest.xml" },
           { from: "src/index.html", to: "index.html" },
+          { from: "src/auth-callback.html", to: "auth-callback.html" },
         ],
       }),
     ],

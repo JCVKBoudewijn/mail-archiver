@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8" />
+    <title>Auth Callback</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+</head>
+<body>
+<script>
+    Office.onReady(function () {
+        // Lees de access token uit de URL hash (implicit flow)
+        const hash = window.location.hash.substring(1);
+        const params = new URLSearchParams(hash);
+        const accessToken = params.get("access_token");
+        const error = params.get("error");
+        const errorDescription = params.get("error_description");
+
+        if (accessToken) {
+            Office.context.ui.messageParent(JSON.stringify({ accessToken }));
+        } else {
+            Office.context.ui.messageParent(JSON.stringify({
+                error: error || "unknown_error",
+                errorDescription: errorDescription || "Geen token ontvangen."
+            }));
+        }
+    });
+</script>
+</body>
+</html>

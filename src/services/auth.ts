@@ -43,7 +43,9 @@ export async function getAccessToken(): Promise<string> {
     // 13001: Gebruiker niet ingelogd
     // 13002: Consent nodig
     // 13003: Niet-ondersteunde omgeving
-    if (code === 13001 || code === 13002 || code === 13003) {
+    // 13006: SSO mislukt (geen on-premises AD / intranet zone)
+    // 13012: SSO niet ondersteund in deze context
+    if ([13001, 13002, 13003, 13006, 13012].includes(code)) {
       return await fallbackToDialogAuth();
     }
 
@@ -64,7 +66,7 @@ async function fallbackToDialogAuth(): Promise<string> {
       `client_id=${encodeURIComponent("06e23f21-f875-4425-aca3-ccd0b06bb24f")}` +
       `&response_type=token` +
       `&scope=${encodeURIComponent(GRAPH_SCOPES.join(" "))}` +
-      `&redirect_uri=${encodeURIComponent(window.location.origin + "/taskpane.html")}` +
+      `&redirect_uri=${encodeURIComponent(window.location.origin + "/auth-callback.html")}` +
       `&prompt=consent`;
 
     Office.context.ui.displayDialogAsync(
