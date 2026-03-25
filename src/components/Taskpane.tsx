@@ -304,10 +304,14 @@ export const Taskpane: React.FC = () => {
   const loadProjects = async (siteId: string, libraryId: string, subPath?: string) => {
     setLoadingProjects(true);
     try {
+      console.log("[loadProjects]", { siteId, libraryId, subPath });
       const folders = await getProjectFolders(siteId, libraryId, subPath);
+      console.log("[loadProjects] resultaat:", folders.length, "mappen");
       setProjects(folders);
-    } catch (error) {
-      console.error("Kan projecten niet laden:", error);
+    } catch (error: any) {
+      console.error("[loadProjects] FOUT:", error?.message || error);
+      setErrorMessage(`Projecten laden mislukt: ${error?.message || error}`);
+      setSaveStatus("error");
       setProjects([]);
     } finally {
       setLoadingProjects(false);
