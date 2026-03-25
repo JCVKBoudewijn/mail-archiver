@@ -301,13 +301,9 @@ export const Taskpane: React.FC = () => {
     }
   };
 
-  const loadProjects = async (siteId: string, libraryId: string, subFolderId?: string) => {
+  const loadProjects = async (siteId: string, libraryId: string, subPath?: string) => {
     setLoadingProjects(true);
     try {
-      // Als er een submap geselecteerd is, gebruik dan de naam als subPath
-      const subPath = subFolderId
-        ? rootFolders.find((f) => f.id === subFolderId)?.name
-        : undefined;
       const folders = await getProjectFolders(siteId, libraryId, subPath);
       setProjects(folders);
     } catch (error) {
@@ -411,27 +407,30 @@ export const Taskpane: React.FC = () => {
     setSubFolders([]);
     setSelectedSubFolderId("");
     setIsPrefilled(false);
-    // Laad rootmappen voor subpad-kiezer én direct projecten vanuit root
-    const [rootFolderList] = await Promise.all([
-      loadRootFoldersForLibrary(selectedSiteId, libraryId),
-      loadProjects(selectedSiteId, libraryId),
-    ]);
-    // Als er maar 1 rootmap is, automatisch selecteren
+
+    // Eerst rootmappen laden, dan projecten laden (met eventuele auto-selectie)
+    const rootFolderList = await loadRootFoldersForLibrary(selectedSiteId, libraryId);
+
     if (rootFolderList.length === 1) {
+      // Automatisch de enige submap selecteren en projecten daarbinnen laden
       setSelectedRootFolderId(rootFolderList[0].id);
-      await loadProjects(selectedSiteId, libraryId, rootFolderList[0].id);
+      await loadProjects(selectedSiteId, libraryId, rootFolderList[0].name);
+    } else {
+      // Meerdere of geen submappen: laad projecten vanuit root
+      await loadProjects(selectedSiteId, libraryId);
     }
   };
 
   const handleRootFolderChange = async (_: any, data: any) => {
     const folderId = data.optionValue || "";
+    const folderName = rootFolders.find((f) => f.id === folderId)?.name;
     setSelectedRootFolderId(folderId);
     setProjects([]);
     setSelectedProjectId("");
     setSubFolders([]);
     setSelectedSubFolderId("");
     setIsPrefilled(false);
-    await loadProjects(selectedSiteId, selectedLibraryId, folderId || undefined);
+    await loadProjects(selectedSiteId, selectedLibraryId, folderName);
   };
 
   const handleProjectChange = async (_: any, data: any) => {
