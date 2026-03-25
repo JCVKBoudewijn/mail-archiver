@@ -5,5 +5,10 @@
   },
   "mimeTypes": {
     ".xml": "application/xml"
+  },
+  "globalHeaders": {
+    "X-Frame-Options": "ALLOW-FROM https://outlook.office.com https://outlook.office365.com https://outlook.live.com",
+    "Content-Security-Policy": "frame-ancestors https://outlook.office.com https://outlook.office365.com https://outlook.live.com https://*.office365.com https://*.outlook.com;",
+    "Access-Control-Allow-Origin": "*"
   }
 }
