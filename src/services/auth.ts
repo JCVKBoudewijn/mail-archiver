@@ -12,8 +12,11 @@ const GRAPH_SCOPES = [
   "Mail.ReadWrite",
 ];
 
-let cachedToken: string | null = null;
-let tokenExpiry: number = 0;
+const TOKEN_KEY = "mailsp_token";
+const TOKEN_EXPIRY_KEY = "mailsp_token_expiry";
+
+let cachedToken: string | null = sessionStorage.getItem(TOKEN_KEY);
+let tokenExpiry: number = Number(sessionStorage.getItem(TOKEN_EXPIRY_KEY) || "0");
 
 // ── PKCE helpers ──────────────────────────────────────────────────────────────
 
@@ -57,6 +60,8 @@ export async function getAccessToken(): Promise<string> {
 
     cachedToken = bootstrapToken;
     tokenExpiry = Date.now() + 3_600_000;
+    sessionStorage.setItem(TOKEN_KEY, bootstrapToken);
+    sessionStorage.setItem(TOKEN_EXPIRY_KEY, tokenExpiry.toString());
     return bootstrapToken;
   } catch (error: any) {
     const code = error?.code;
@@ -129,6 +134,8 @@ async function fallbackToDialogAuth(): Promise<string> {
               const token = await exchangeCodeForToken(message.code, verifier, redirectUri);
               cachedToken = token;
               tokenExpiry = Date.now() + 3_600_000;
+              sessionStorage.setItem(TOKEN_KEY, token);
+              sessionStorage.setItem(TOKEN_EXPIRY_KEY, tokenExpiry.toString());
               resolve(token);
             } catch (e: any) {
               reject(new Error(e.message || "Ongeldig antwoord van login dialog."));
@@ -182,4 +189,6 @@ async function exchangeCodeForToken(
 export function clearTokenCache(): void {
   cachedToken = null;
   tokenExpiry = 0;
+  sessionStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
 }

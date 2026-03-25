@@ -454,8 +454,8 @@ export const Taskpane: React.FC = () => {
   // --- Opslaan ---
   const handleSave = useCallback(async () => {
     const item = getMailItem();
-    if (!item || !selectedSiteId || !selectedLibraryId || !selectedProjectId || !selectedSubFolderId) {
-      setErrorMessage("Selecteer een site, bibliotheek, project en map.");
+    if (!item || !selectedSiteId || !selectedLibraryId || !selectedProjectId) {
+      setErrorMessage("Selecteer een site, bibliotheek en project.");
       setSaveStatus("error");
       return;
     }
@@ -466,7 +466,9 @@ export const Taskpane: React.FC = () => {
     try {
       const itemId = (item as any).itemId || item.itemId;
       const emlBlob = await getMailMimeContent(itemId);
-      await uploadToSharePoint(selectedSiteId, selectedSubFolderId, fileName, emlBlob);
+      // Upload naar submap als geselecteerd, anders naar de projectmap zelf
+      const targetFolderId = selectedSubFolderId || selectedProjectId;
+      await uploadToSharePoint(selectedSiteId, targetFolderId, fileName, emlBlob);
 
       const conversationId = getConversationId();
       const normalizedSubject = normalizeSubject(item.subject || "");
@@ -516,7 +518,7 @@ export const Taskpane: React.FC = () => {
     : projects;
 
   const canSave =
-    selectedSiteId && selectedLibraryId && selectedProjectId && selectedSubFolderId && saveStatus !== "saving";
+    selectedSiteId && selectedLibraryId && selectedProjectId && saveStatus !== "saving";
 
   // --- Render ---
   return (
