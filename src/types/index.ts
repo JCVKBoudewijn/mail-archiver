@@ -50,9 +50,22 @@ export interface ConversationHistory {
   timestamp: number;
 }
 
+/** Beschikbare metadata velden voor bestandsnaam */
+export type FileNameField = "date" | "subject" | "sender" | "recipient";
+
+/** Configuratie voor bestandsnaam opbouw */
+export interface FileNameConfig {
+  fields: FileNameField[];  // volgorde + welke velden actief zijn
+}
+
+export const DEFAULT_FILENAME_CONFIG: FileNameConfig = {
+  fields: ["date", "subject"],
+};
+
 /** Alle roaming settings data */
 export interface RoamingData {
   conversations: ConversationHistory[];
+  fileNameConfig?: FileNameConfig;
 }
 
 /** Status van de opslag-actie */

@@ -26,8 +26,11 @@ import type {
   MailFolder,
   SaveStatus,
   ConversationHistory,
+  FileNameField,
 } from "../types";
+import { DEFAULT_FILENAME_CONFIG } from "../types";
 import { APP_CONFIG } from "../config";
+import { FileNameBuilder } from "./FileNameBuilder";
 import {
   searchSites,
   getLibraries,
@@ -43,6 +46,8 @@ import {
   getHistoryForConversation,
   saveConversationHistory,
   loadConversationHistory,
+  loadFileNameConfig,
+  saveFileNameConfig,
 } from "../services/roamingSettings";
 
 // ============================================================
@@ -171,6 +176,9 @@ export const Taskpane: React.FC = () => {
   const [mailFolders, setMailFolders] = useState<MailFolder[]>([]);
   const [selectedArchiveFolderId, setSelectedArchiveFolderId] = useState<string>("");
 
+  const [fileNameFields, setFileNameFields] = useState<FileNameField[]>(
+    () => loadFileNameConfig().fields
+  );
   const [saveAttachments, setSaveAttachments] = useState<boolean>(true);
   const [fileName, setFileName] = useState<string>("");
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
@@ -181,6 +189,12 @@ export const Taskpane: React.FC = () => {
   const [loadingLibraries, setLoadingLibraries] = useState(false);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [loadingSubFolders, setLoadingSubFolders] = useState(false);
+
+  // --- Mail metadata (voor bestandsnaam preview) ---
+  const [mailSender, setMailSender] = useState<string>("");
+  const [mailRecipient, setMailRecipient] = useState<string>("");
+  const [mailSubject, setMailSubject] = useState<string>("");
+  const [mailDate, setMailDate] = useState<Date>(new Date());
 
   // --- Helpers ---
   const getMailItem = () => Office.context.mailbox.item;
@@ -199,7 +213,14 @@ export const Taskpane: React.FC = () => {
         const dateReceived = item.dateTimeCreated
           ? new Date(item.dateTimeCreated.toString())
           : new Date();
-        setFileName(generateEmailFileName(subject, dateReceived));
+        const sender = item.from?.emailAddress || "";
+        const recipient = (item as any).to?.[0]?.emailAddress || "";
+
+        setMailSubject(subject);
+        setMailDate(dateReceived);
+        setMailSender(sender);
+        setMailRecipient(recipient);
+        setFileName(generateEmailFileName(subject, dateReceived, fileNameFields, sender, recipient));
       }
 
       await loadAllSites();
@@ -302,6 +323,13 @@ export const Taskpane: React.FC = () => {
     } catch (error) {
       console.error("Kan mail folders niet laden:", error);
     }
+  };
+
+  // --- Bestandsnaam velden ---
+  const handleFileNameFieldsChange = async (fields: FileNameField[]) => {
+    setFileNameFields(fields);
+    setFileName(generateEmailFileName(mailSubject, mailDate, fields, mailSender, mailRecipient));
+    await saveFileNameConfig({ fields }).catch(console.error);
   };
 
   // --- Smart Prefill ---
@@ -612,7 +640,11 @@ export const Taskpane: React.FC = () => {
         {/* Bestandsnaam */}
         <div className={styles.fieldGroup}>
           <Text className={styles.label}>Bestandsnaam</Text>
-          <Text className={styles.fileName}>{fileName || "..."}</Text>
+          <FileNameBuilder
+            fields={fileNameFields}
+            onChange={handleFileNameFieldsChange}
+            preview={fileName || "..."}
+          />
         </div>
 
         {/* Bijlagen */}

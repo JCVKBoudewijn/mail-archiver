@@ -11,6 +11,7 @@ import type {
   ProjectFolder,
   SubFolder,
   MailFolder,
+  FileNameField,
 } from "../types";
 
 /** Generieke Graph API call met automatische token refresh */
@@ -291,20 +292,33 @@ function sanitizeFileName(name: string): string {
 }
 
 /**
- * Genereer de bestandsnaam voor een e-mail.
- * Format: [YYYY-MM-DD-HHmm] - [Onderwerp].eml
+ * Genereer de bestandsnaam voor een e-mail op basis van geconfigureerde velden.
+ * Velden worden samengevoegd met " - " als separator.
  */
 export function generateEmailFileName(
   subject: string,
-  dateReceived: Date
+  dateReceived: Date,
+  fields: FileNameField[] = ["date", "subject"],
+  sender: string = "",
+  recipient: string = ""
 ): string {
   const pad = (n: number) => n.toString().padStart(2, "0");
   const y = dateReceived.getFullYear();
-  const m = pad(dateReceived.getMonth() + 1);
+  const mo = pad(dateReceived.getMonth() + 1);
   const d = pad(dateReceived.getDate());
   const hh = pad(dateReceived.getHours());
   const mm = pad(dateReceived.getMinutes());
 
-  const cleanSubject = subject.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim();
-  return `${y}-${m}-${d}-${hh}${mm} - ${cleanSubject}.eml`;
+  const clean = (s: string) => s.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim();
+
+  const parts = fields.map((field) => {
+    switch (field) {
+      case "date":      return `${y}-${mo}-${d}-${hh}${mm}`;
+      case "subject":   return clean(subject);
+      case "sender":    return clean(sender);
+      case "recipient": return clean(recipient);
+    }
+  }).filter(Boolean);
+
+  return `${parts.join(" - ")}.eml`;
 }

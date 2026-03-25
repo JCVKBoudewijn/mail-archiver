@@ -5,7 +5,8 @@
  */
 
 import { ROAMING_SETTINGS_MAX_BYTES } from "../config";
-import type { ConversationHistory, RoamingData } from "../types";
+import type { ConversationHistory, FileNameConfig, RoamingData } from "../types";
+import { DEFAULT_FILENAME_CONFIG } from "../types";
 
 const SETTINGS_KEY = "mailToSharePoint";
 
@@ -85,6 +86,30 @@ export function getHistoryForConversation(
 ): ConversationHistory | undefined {
   const conversations = loadConversationHistory();
   return conversations.find((c) => c.conversationId === conversationId);
+}
+
+/** Lees de opgeslagen bestandsnaam configuratie */
+export function loadFileNameConfig(): FileNameConfig {
+  const settings = Office.context.roamingSettings;
+  const data = settings.get(SETTINGS_KEY) as RoamingData | undefined;
+  return data?.fileNameConfig ?? DEFAULT_FILENAME_CONFIG;
+}
+
+/** Sla de bestandsnaam configuratie op */
+export async function saveFileNameConfig(config: FileNameConfig): Promise<void> {
+  const settings = Office.context.roamingSettings;
+  const data = (settings.get(SETTINGS_KEY) as RoamingData) ?? { conversations: [] };
+  settings.set(SETTINGS_KEY, { ...data, fileNameConfig: config });
+
+  return new Promise((resolve, reject) => {
+    settings.saveAsync((result) => {
+      if (result.status === Office.AsyncResultStatus.Succeeded) {
+        resolve();
+      } else {
+        reject(new Error("Kan bestandsnaam configuratie niet opslaan."));
+      }
+    });
+  });
 }
 
 /** Verwijder alle opgeslagen conversation histories */
