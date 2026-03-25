@@ -139,6 +139,7 @@ export async function getProjectFolders(
     : `/sites/${siteId}/drives/${libraryId}/root/children?$select=id,name,webUrl&$top=500`;
 
   const data = await graphFetch(endpoint);
+  console.log("[getProjectFolders] raw items:", JSON.stringify((data.value || []).map((i: any) => ({ name: i.name, hasFolder: !!i.folder, keys: Object.keys(i) }))));
 
   return (data.value || [])
     .filter((item: any) => item.folder !== undefined)
