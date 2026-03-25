@@ -6,7 +6,7 @@
   xsi:type="MailApp">
 
   <Id>635744e6-c67b-4da7-9a99-be4a90b70e7b</Id>
-  <Version>1.0.0.0</Version>
+  <Version>1.0.0.1</Version>
   <ProviderName>J.C. van Kessel</ProviderName>
   <DefaultLocale>nl-NL</DefaultLocale>
   <DisplayName DefaultValue="Mail naar SharePoint" />
