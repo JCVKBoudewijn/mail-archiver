@@ -5,7 +5,7 @@
 
 const GRAPH_SCOPES = [
   "Files.ReadWrite.All",
-  "Sites.ReadWrite.All",
+  "Sites.Read.All",
   "Mail.ReadWrite",
 ];
 
