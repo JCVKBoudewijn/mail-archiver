@@ -51,6 +51,7 @@ async function graphFetch(
 
   if (!response.ok) {
     const errorBody = await response.text();
+    console.error(`[graphFetch] ${response.status} ${endpoint}`, errorBody);
     throw new Error(`Graph API fout: ${response.status} - ${errorBody}`);
   }
 
