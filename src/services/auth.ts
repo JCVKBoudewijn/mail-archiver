@@ -87,7 +87,7 @@ async function fallbackToDialogAuth(): Promise<string> {
   const redirectUri = window.location.origin + "/auth-callback.html";
 
   const dialogUrl =
-    `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?` +
+    `https://login.microsoftonline.com/eba9b46b-0bb0-493e-8724-854a60012ad4/oauth2/v2.0/authorize?` +
     `client_id=${encodeURIComponent(CLIENT_ID)}` +
     `&response_type=code` +
     `&scope=${encodeURIComponent(GRAPH_SCOPES.join(" ") + " offline_access")}` +
@@ -162,7 +162,7 @@ async function exchangeCodeForToken(
   });
 
   const response = await fetch(
-    "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    "https://login.microsoftonline.com/eba9b46b-0bb0-493e-8724-854a60012ad4/oauth2/v2.0/token",
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
