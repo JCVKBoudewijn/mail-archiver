@@ -93,6 +93,17 @@ export async function getSiteByHostname(
 // SharePoint Bibliotheken
 // ============================================================
 
+/** Haal mappen op in de root van een bibliotheek (voor subpad-kiezer) */
+export async function getRootFolders(siteId: string, libraryId: string): Promise<SubFolder[]> {
+  const data = await graphFetch(
+    `/sites/${siteId}/drives/${libraryId}/root/children?$select=id,name,webUrl&$top=100`
+  );
+  return (data.value || [])
+    .filter((item: any) => item.folder !== undefined)
+    .map((item: any) => ({ id: item.id, name: item.name, webUrl: item.webUrl }))
+    .sort((a: SubFolder, b: SubFolder) => a.name.localeCompare(b.name));
+}
+
 /** Haal alle documentbibliotheken op van een SharePoint site */
 export async function getLibraries(siteId: string): Promise<Library[]> {
   const data = await graphFetch(
