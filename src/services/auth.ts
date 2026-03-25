@@ -94,8 +94,7 @@ async function fallbackToDialogAuth(): Promise<string> {
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&code_challenge=${challenge}` +
     `&code_challenge_method=S256` +
-    `&state=${state}` +
-    `&prompt=consent`;
+    `&state=${state}`;
 
   return new Promise((resolve, reject) => {
     Office.context.ui.displayDialogAsync(
