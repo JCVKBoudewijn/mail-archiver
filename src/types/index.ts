@@ -12,6 +12,13 @@ export interface ProjectFolder {
   webUrl: string;
 }
 
+/** SharePoint documentbibliotheek */
+export interface Library {
+  id: string;
+  name: string;
+  webUrl: string;
+}
+
 /** Submap binnen een project */
 export interface SubFolder {
   id: string;
@@ -29,8 +36,11 @@ export interface MailFolder {
 /** Opgeslagen instellingen per conversatie (roaming settings) */
 export interface ConversationHistory {
   conversationId: string;
+  normalizedSubject?: string;
   siteId: string;
   siteName: string;
+  libraryId: string;
+  libraryName: string;
   projectFolderId: string;
   projectFolderName: string;
   subFolderId: string;

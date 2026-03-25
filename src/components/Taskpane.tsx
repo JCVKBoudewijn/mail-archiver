@@ -20,6 +20,7 @@ import {
 
 import type {
   SharePointSite,
+  Library,
   ProjectFolder,
   SubFolder,
   MailFolder,
@@ -29,6 +30,7 @@ import type {
 import { APP_CONFIG } from "../config";
 import {
   searchSites,
+  getLibraries,
   getProjectFolders,
   getSubFolders,
   getMailMimeContent,
@@ -40,6 +42,7 @@ import {
 import {
   getHistoryForConversation,
   saveConversationHistory,
+  loadConversationHistory,
 } from "../services/roamingSettings";
 
 // ============================================================
@@ -130,6 +133,18 @@ const useStyles = makeStyles({
 });
 
 // ============================================================
+// Helpers
+// ============================================================
+
+/** Normaliseer onderwerp: verwijder RE:/FW: prefixes en trim */
+function normalizeSubject(subject: string): string {
+  return subject
+    .replace(/^(re|fw|fwd|tr|antw):\s*/gi, "")
+    .trim()
+    .toLowerCase();
+}
+
+// ============================================================
 // Component
 // ============================================================
 
@@ -140,6 +155,11 @@ export const Taskpane: React.FC = () => {
   const [sites, setSites] = useState<SharePointSite[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>("");
   const [siteSearch, setSiteSearch] = useState<string>("");
+
+  const [libraries, setLibraries] = useState<Library[]>([]);
+  const [selectedLibraryId, setSelectedLibraryId] = useState<string>("");
+
+  const [librarySubPath, setLibrarySubPath] = useState<string>("");
 
   const [projects, setProjects] = useState<ProjectFolder[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
@@ -158,15 +178,13 @@ export const Taskpane: React.FC = () => {
   const [isPrefilled, setIsPrefilled] = useState<boolean>(false);
 
   const [loadingSites, setLoadingSites] = useState(false);
+  const [loadingLibraries, setLoadingLibraries] = useState(false);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [loadingSubFolders, setLoadingSubFolders] = useState(false);
 
   // --- Helpers ---
   const getMailItem = () => Office.context.mailbox.item;
-
-  const getConversationId = (): string | undefined => {
-    return getMailItem()?.conversationId;
-  };
+  const getConversationId = (): string | undefined => getMailItem()?.conversationId;
 
   // --- Initialisatie ---
   useEffect(() => {
@@ -175,7 +193,6 @@ export const Taskpane: React.FC = () => {
 
   const initializeTaskpane = async () => {
     try {
-      // Genereer bestandsnaam
       const item = getMailItem();
       if (item) {
         const subject = item.subject || "Geen onderwerp";
@@ -185,38 +202,50 @@ export const Taskpane: React.FC = () => {
         setFileName(generateEmailFileName(subject, dateReceived));
       }
 
-      // Laad standaard site
-      await loadDefaultSite();
-
-      // Laad mail folders voor archief selector
+      await loadAllSites();
       loadMailFolders();
-
-      // Check roaming settings voor smart prefill
-      const conversationId = getConversationId();
-      if (conversationId) {
-        const history = getHistoryForConversation(conversationId);
-        if (history) {
-          applyHistory(history);
-        }
-      }
     } catch (error) {
       console.error("Initialisatie fout:", error);
     }
   };
 
-  const loadDefaultSite = async () => {
+  const loadAllSites = async () => {
     setLoadingSites(true);
     try {
-      // Laad alle sites waar de gebruiker toegang toe heeft
       const results = await searchSites("*");
       setSites(results);
-      // Selecteer automatisch de standaard site als die gevonden wordt
-      const defaultSite = results.find((s) =>
-        s.webUrl?.includes(APP_CONFIG.defaultSiteHostname)
-      );
-      if (defaultSite) {
-        setSelectedSiteId(defaultSite.id);
-        await loadProjects(defaultSite.id);
+
+      // Bepaal prefill: eerst op conversationId, dan op genormaliseerd onderwerp
+      const conversationId = getConversationId();
+      let history: ConversationHistory | undefined;
+
+      if (conversationId) {
+        history = getHistoryForConversation(conversationId);
+      }
+
+      if (!history) {
+        // Zoek op genormaliseerd onderwerp
+        const subject = getMailItem()?.subject || "";
+        const normalized = normalizeSubject(subject);
+        if (normalized) {
+          const allHistory = loadConversationHistory();
+          history = allHistory.find(
+            (h) => h.normalizedSubject === normalized
+          );
+        }
+      }
+
+      if (history) {
+        await applyHistory(history, results);
+      } else {
+        // Selecteer standaard site
+        const defaultSite = results.find((s) =>
+          s.webUrl?.toLowerCase().includes(APP_CONFIG.defaultSiteHostname.toLowerCase())
+        );
+        if (defaultSite) {
+          setSelectedSiteId(defaultSite.id);
+          await loadLibrariesForSite(defaultSite.id);
+        }
       }
     } catch (error) {
       console.error("Kan sites niet laden:", error);
@@ -225,11 +254,25 @@ export const Taskpane: React.FC = () => {
     }
   };
 
-  const loadProjects = async (siteId: string) => {
+  const loadLibrariesForSite = async (siteId: string): Promise<Library[]> => {
+    setLoadingLibraries(true);
+    try {
+      const libs = await getLibraries(siteId);
+      setLibraries(libs);
+      return libs;
+    } catch (error) {
+      console.error("Kan bibliotheken niet laden:", error);
+      setLibraries([]);
+      return [];
+    } finally {
+      setLoadingLibraries(false);
+    }
+  };
+
+  const loadProjects = async (siteId: string, libraryId: string, subPath?: string) => {
     setLoadingProjects(true);
     try {
-      const basePath = getBasePathForSite(siteId);
-      const folders = await getProjectFolders(siteId, basePath);
+      const folders = await getProjectFolders(siteId, libraryId, subPath);
       setProjects(folders);
     } catch (error) {
       console.error("Kan projecten niet laden:", error);
@@ -261,27 +304,27 @@ export const Taskpane: React.FC = () => {
     }
   };
 
-  const getBasePathForSite = (siteId: string): string => {
-    const config = APP_CONFIG.siteConfigs.find((c) => c.siteId === siteId);
-    return config?.basePath ?? APP_CONFIG.defaultBasePath;
-  };
-
   // --- Smart Prefill ---
-  const applyHistory = async (history: ConversationHistory) => {
+  const applyHistory = async (history: ConversationHistory, availableSites: SharePointSite[]) => {
     setIsPrefilled(true);
 
-    // Stel site in
+    const siteExists = availableSites.find((s) => s.id === history.siteId);
+    if (!siteExists) return;
+
     setSelectedSiteId(history.siteId);
+    const libs = await loadLibrariesForSite(history.siteId);
 
-    // Laad projecten en stel project in
-    await loadProjects(history.siteId);
+    const libExists = libs.find((l) => l.id === history.libraryId);
+    if (!libExists) return;
+
+    setSelectedLibraryId(history.libraryId);
+    setLibrarySubPath(""); // subPath wordt niet opgeslagen, gebruiker kan aanpassen
+    await loadProjects(history.siteId, history.libraryId);
+
     setSelectedProjectId(history.projectFolderId);
-
-    // Laad submappen en stel submap in
     await loadSubFolders(history.siteId, history.projectFolderId);
     setSelectedSubFolderId(history.subFolderId);
 
-    // Archief map
     if (history.archiveMailFolderId) {
       setSelectedArchiveFolderId(history.archiveMailFolderId);
     }
@@ -305,11 +348,37 @@ export const Taskpane: React.FC = () => {
   const handleSiteChange = async (_: any, data: any) => {
     const siteId = data.optionValue;
     setSelectedSiteId(siteId);
+    setSelectedLibraryId("");
+    setLibrarySubPath("");
+    setProjects([]);
     setSelectedProjectId("");
-    setSelectedSubFolderId("");
     setSubFolders([]);
+    setSelectedSubFolderId("");
     setIsPrefilled(false);
-    await loadProjects(siteId);
+    await loadLibrariesForSite(siteId);
+  };
+
+  const handleLibraryChange = async (_: any, data: any) => {
+    const libraryId = data.optionValue;
+    setSelectedLibraryId(libraryId);
+    setLibrarySubPath("");
+    setProjects([]);
+    setSelectedProjectId("");
+    setSubFolders([]);
+    setSelectedSubFolderId("");
+    setIsPrefilled(false);
+    await loadProjects(selectedSiteId, libraryId);
+  };
+
+  const handleSubPathChange = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && selectedLibraryId) {
+      const path = (e.target as HTMLInputElement).value.trim();
+      setProjects([]);
+      setSelectedProjectId("");
+      setSubFolders([]);
+      setSelectedSubFolderId("");
+      await loadProjects(selectedSiteId, selectedLibraryId, path || undefined);
+    }
   };
 
   const handleProjectChange = async (_: any, data: any) => {
@@ -332,8 +401,8 @@ export const Taskpane: React.FC = () => {
   // --- Opslaan ---
   const handleSave = useCallback(async () => {
     const item = getMailItem();
-    if (!item || !selectedSiteId || !selectedProjectId || !selectedSubFolderId) {
-      setErrorMessage("Selecteer een site, project en map.");
+    if (!item || !selectedSiteId || !selectedLibraryId || !selectedProjectId || !selectedSubFolderId) {
+      setErrorMessage("Selecteer een site, bibliotheek, project en map.");
       setSaveStatus("error");
       return;
     }
@@ -342,32 +411,30 @@ export const Taskpane: React.FC = () => {
     setErrorMessage("");
 
     try {
-      // 1. Haal de e-mail op als .eml (MIME content)
       const itemId = (item as any).itemId || item.itemId;
       const emlBlob = await getMailMimeContent(itemId);
 
-      // 2. Upload naar SharePoint
-      await uploadToSharePoint(
-        selectedSiteId,
-        selectedSubFolderId,
-        fileName,
-        emlBlob
-      );
+      await uploadToSharePoint(selectedSiteId, selectedSubFolderId, fileName, emlBlob);
 
-      // 3. Sla conversatie history op (smart prefill)
+      // Sla history op (conversationId + genormaliseerd onderwerp)
       const conversationId = getConversationId();
-      if (conversationId) {
-        const selectedSite = sites.find((s) => s.id === selectedSiteId);
-        const selectedProject = projects.find((p) => p.id === selectedProjectId);
-        const selectedSubFolder = subFolders.find((f) => f.id === selectedSubFolderId);
-        const selectedArchiveFolder = mailFolders.find(
-          (f) => f.id === selectedArchiveFolderId
-        );
+      const subject = item.subject || "";
+      const normalizedSubject = normalizeSubject(subject);
 
+      const selectedSite = sites.find((s) => s.id === selectedSiteId);
+      const selectedLibrary = libraries.find((l) => l.id === selectedLibraryId);
+      const selectedProject = projects.find((p) => p.id === selectedProjectId);
+      const selectedSubFolder = subFolders.find((f) => f.id === selectedSubFolderId);
+      const selectedArchiveFolder = mailFolders.find((f) => f.id === selectedArchiveFolderId);
+
+      if (conversationId) {
         await saveConversationHistory({
           conversationId,
+          normalizedSubject,
           siteId: selectedSiteId,
           siteName: selectedSite?.displayName ?? "",
+          libraryId: selectedLibraryId,
+          libraryName: selectedLibrary?.name ?? "",
           projectFolderId: selectedProjectId,
           projectFolderName: selectedProject?.name ?? "",
           subFolderId: selectedSubFolderId,
@@ -378,15 +445,11 @@ export const Taskpane: React.FC = () => {
         });
       }
 
-      // 4. Verplaats mail naar archief (als geselecteerd)
       if (selectedArchiveFolderId) {
-        const itemId = (item as any).itemId || item.itemId;
         await moveMailToFolder(itemId, selectedArchiveFolderId);
       }
 
       setSaveStatus("success");
-
-      // Reset status na 3 seconden
       setTimeout(() => setSaveStatus("idle"), 3000);
     } catch (error: any) {
       console.error("Opslaan mislukt:", error);
@@ -395,27 +458,33 @@ export const Taskpane: React.FC = () => {
     }
   }, [
     selectedSiteId,
+    selectedLibraryId,
     selectedProjectId,
     selectedSubFolderId,
     selectedArchiveFolderId,
     fileName,
     sites,
+    libraries,
     projects,
     subFolders,
     mailFolders,
   ]);
 
-  // --- Gefilterde projecten (zoekfunctie) ---
+  // --- Gefilterde projecten ---
   const filteredProjects = projectSearch
     ? projects.filter((p) =>
         p.name.toLowerCase().includes(projectSearch.toLowerCase())
       )
     : projects;
 
-  // --- Render ---
   const canSave =
-    selectedSiteId && selectedProjectId && selectedSubFolderId && saveStatus !== "saving";
+    selectedSiteId &&
+    selectedLibraryId &&
+    selectedProjectId &&
+    selectedSubFolderId &&
+    saveStatus !== "saving";
 
+  // --- Render ---
   return (
     <div className={styles.root}>
       {/* Header */}
@@ -426,9 +495,8 @@ export const Taskpane: React.FC = () => {
         )}
       </div>
 
-      {/* Form */}
       <div className={styles.form}>
-        {/* Site Dropdown */}
+        {/* Site */}
         <div className={styles.fieldGroup}>
           <Text className={styles.label}>SharePoint Site</Text>
           <div className={styles.searchRow}>
@@ -447,9 +515,7 @@ export const Taskpane: React.FC = () => {
           </div>
           <Dropdown
             placeholder={loadingSites ? "Laden..." : "Selecteer site"}
-            value={
-              sites.find((s) => s.id === selectedSiteId)?.displayName ?? ""
-            }
+            value={sites.find((s) => s.id === selectedSiteId)?.displayName ?? ""}
             selectedOptions={selectedSiteId ? [selectedSiteId] : []}
             onOptionSelect={handleSiteChange}
             disabled={loadingSites}
@@ -462,7 +528,35 @@ export const Taskpane: React.FC = () => {
           </Dropdown>
         </div>
 
-        {/* Project Dropdown */}
+        {/* Bibliotheek */}
+        {selectedSiteId && (
+          <div className={styles.fieldGroup}>
+            <Text className={styles.label}>Bibliotheek</Text>
+            <Dropdown
+              placeholder={loadingLibraries ? "Laden..." : libraries.length === 0 ? "Selecteer eerst een site" : "Selecteer bibliotheek"}
+              value={libraries.find((l) => l.id === selectedLibraryId)?.name ?? ""}
+              selectedOptions={selectedLibraryId ? [selectedLibraryId] : []}
+              onOptionSelect={handleLibraryChange}
+              disabled={loadingLibraries || libraries.length === 0}
+            >
+              {libraries.map((lib) => (
+                <Option key={lib.id} value={lib.id}>
+                  {lib.name}
+                </Option>
+              ))}
+            </Dropdown>
+            {selectedLibraryId && (
+              <Input
+                placeholder="Submap in bibliotheek (bijv. 2. Werken) — Enter om te laden"
+                value={librarySubPath}
+                onChange={(_, data) => setLibrarySubPath(data.value)}
+                onKeyDown={handleSubPathChange}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Project */}
         <div className={styles.fieldGroup}>
           <Text className={styles.label}>Project</Text>
           <Input
@@ -475,12 +569,10 @@ export const Taskpane: React.FC = () => {
               loadingProjects
                 ? "Laden..."
                 : projects.length === 0
-                ? "Selecteer eerst een site"
+                ? "Selecteer eerst een bibliotheek"
                 : "Selecteer project"
             }
-            value={
-              projects.find((p) => p.id === selectedProjectId)?.name ?? ""
-            }
+            value={projects.find((p) => p.id === selectedProjectId)?.name ?? ""}
             selectedOptions={selectedProjectId ? [selectedProjectId] : []}
             onOptionSelect={handleProjectChange}
             disabled={loadingProjects || projects.length === 0}
@@ -493,24 +585,16 @@ export const Taskpane: React.FC = () => {
           </Dropdown>
         </div>
 
-        {/* Submap Dropdown */}
+        {/* Submap */}
         <div className={styles.fieldGroup}>
           <Text className={styles.label}>Map</Text>
           {loadingSubFolders ? (
             <Spinner size="tiny" label="Submappen laden..." />
           ) : (
             <Dropdown
-              placeholder={
-                subFolders.length === 0
-                  ? "Selecteer eerst een project"
-                  : "Selecteer map"
-              }
-              value={
-                subFolders.find((f) => f.id === selectedSubFolderId)?.name ?? ""
-              }
-              selectedOptions={
-                selectedSubFolderId ? [selectedSubFolderId] : []
-              }
+              placeholder={subFolders.length === 0 ? "Selecteer eerst een project" : "Selecteer map"}
+              value={subFolders.find((f) => f.id === selectedSubFolderId)?.name ?? ""}
+              selectedOptions={selectedSubFolderId ? [selectedSubFolderId] : []}
               onOptionSelect={handleSubFolderChange}
               disabled={subFolders.length === 0}
             >
@@ -531,7 +615,7 @@ export const Taskpane: React.FC = () => {
           <Text className={styles.fileName}>{fileName || "..."}</Text>
         </div>
 
-        {/* Bijlagen checkbox */}
+        {/* Bijlagen */}
         <Checkbox
           checked={saveAttachments}
           onChange={(_, data) => setSaveAttachments(!!data.checked)}
@@ -540,18 +624,13 @@ export const Taskpane: React.FC = () => {
 
         <Divider />
 
-        {/* Archief Map Selector */}
+        {/* Archief map */}
         <div className={styles.fieldGroup}>
           <Text className={styles.label}>Archief map (optioneel)</Text>
           <Dropdown
             placeholder="Mail laten staan"
-            value={
-              mailFolders.find((f) => f.id === selectedArchiveFolderId)
-                ?.displayName ?? ""
-            }
-            selectedOptions={
-              selectedArchiveFolderId ? [selectedArchiveFolderId] : []
-            }
+            value={mailFolders.find((f) => f.id === selectedArchiveFolderId)?.displayName ?? ""}
+            selectedOptions={selectedArchiveFolderId ? [selectedArchiveFolderId] : []}
             onOptionSelect={handleArchiveFolderChange}
             clearable
           >
@@ -564,7 +643,7 @@ export const Taskpane: React.FC = () => {
         </div>
       </div>
 
-      {/* Footer - Save Button & Status */}
+      {/* Footer */}
       <div className={styles.footer}>
         <Button
           className={styles.saveButton}

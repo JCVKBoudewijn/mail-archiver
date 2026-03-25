@@ -7,6 +7,7 @@ import { getAccessToken, clearTokenCache } from "./auth";
 import { GRAPH_BASE_URL } from "../config";
 import type {
   SharePointSite,
+  Library,
   ProjectFolder,
   SubFolder,
   MailFolder,
@@ -88,21 +89,43 @@ export async function getSiteByHostname(
 }
 
 // ============================================================
+// SharePoint Bibliotheken
+// ============================================================
+
+/** Haal alle documentbibliotheken op van een SharePoint site */
+export async function getLibraries(siteId: string): Promise<Library[]> {
+  const data = await graphFetch(
+    `/sites/${siteId}/drives?$select=id,name,webUrl`
+  );
+  return (data.value || [])
+    .filter((d: any) => d.driveType === "documentLibrary" || d.name)
+    .map((d: any) => ({
+      id: d.id,
+      name: d.name,
+      webUrl: d.webUrl,
+    }))
+    .sort((a: Library, b: Library) => a.name.localeCompare(b.name));
+}
+
+// ============================================================
 // SharePoint Folders (Projecten & Submappen)
 // ============================================================
 
 /**
- * Haal projectmappen op vanuit een specifiek pad op een SharePoint site.
- * Filtert op het YY-XXX projectnummer formaat.
+ * Haal projectmappen op vanuit een bibliotheek, optioneel binnen een subpad.
+ * libraryId: drive ID van de bibliotheek
+ * subPath: optioneel subpad binnen de bibliotheek, bijv. "2. Werken"
  */
 export async function getProjectFolders(
   siteId: string,
-  basePath: string
+  libraryId: string,
+  subPath?: string
 ): Promise<ProjectFolder[]> {
-  const encodedPath = encodeURIComponent(basePath);
-  const data = await graphFetch(
-    `/sites/${siteId}/drive/root:/${encodedPath}:/children?$filter=folder ne null&$select=id,name,webUrl&$top=500`
-  );
+  const endpoint = subPath
+    ? `/sites/${siteId}/drives/${libraryId}/root:/${encodeURIComponent(subPath)}:/children?$select=id,name,webUrl&$top=500`
+    : `/sites/${siteId}/drives/${libraryId}/root/children?$select=id,name,webUrl&$top=500`;
+
+  const data = await graphFetch(endpoint);
 
   return (data.value || [])
     .filter((item: any) => item.folder !== undefined)
