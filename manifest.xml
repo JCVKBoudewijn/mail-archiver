@@ -115,9 +115,9 @@
           <DesktopFormFactor>
             <ExtensionPoint xsi:type="MessageReadCommandSurface">
               <OfficeTab id="TabDefault">
-                <Group id="msgReadGroup">
+                <Group id="msgReadGroup.v11">
                   <Label resid="GroupLabel" />
-                  <Control xsi:type="Button" id="TaskpaneButton">
+                  <Control xsi:type="Button" id="TaskpaneButton.v11">
                     <Label resid="TaskpaneButton.Label" />
                     <Supertip>
                       <Title resid="TaskpaneButton.Label" />
