@@ -97,7 +97,7 @@ export async function getSiteByHostname(
 /** Haal mappen op in de root van een bibliotheek (voor subpad-kiezer) */
 export async function getRootFolders(siteId: string, libraryId: string): Promise<SubFolder[]> {
   const data = await graphFetch(
-    `/sites/${siteId}/drives/${libraryId}/root/children?$select=id,name,webUrl&$top=100`
+    `/sites/${siteId}/drives/${libraryId}/root/children?$select=id,name,webUrl,folder&$top=100`
   );
   return (data.value || [])
     .filter((item: any) => item.folder !== undefined)
@@ -135,11 +135,10 @@ export async function getProjectFolders(
   subPath?: string
 ): Promise<ProjectFolder[]> {
   const endpoint = subPath
-    ? `/sites/${siteId}/drives/${libraryId}/root:/${encodeURIComponent(subPath)}:/children?$select=id,name,webUrl&$top=500`
-    : `/sites/${siteId}/drives/${libraryId}/root/children?$select=id,name,webUrl&$top=500`;
+    ? `/sites/${siteId}/drives/${libraryId}/root:/${encodeURIComponent(subPath)}:/children?$select=id,name,webUrl,folder&$top=500`
+    : `/sites/${siteId}/drives/${libraryId}/root/children?$select=id,name,webUrl,folder&$top=500`;
 
   const data = await graphFetch(endpoint);
-  console.log("[getProjectFolders] raw items:", JSON.stringify((data.value || []).map((i: any) => ({ name: i.name, hasFolder: !!i.folder, keys: Object.keys(i) }))));
 
   return (data.value || [])
     .filter((item: any) => item.folder !== undefined)
@@ -157,7 +156,7 @@ export async function getSubFolders(
   folderId: string
 ): Promise<SubFolder[]> {
   const data = await graphFetch(
-    `/sites/${siteId}/drive/items/${folderId}/children?$filter=folder ne null&$select=id,name,webUrl&$top=100`
+    `/sites/${siteId}/drive/items/${folderId}/children?$select=id,name,webUrl,folder&$top=100`
   );
 
   return (data.value || [])
