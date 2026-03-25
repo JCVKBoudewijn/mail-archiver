@@ -26,10 +26,9 @@ import type {
   SaveStatus,
   ConversationHistory,
 } from "../types";
-import { APP_CONFIG, PROJECT_NUMBER_REGEX } from "../config";
+import { APP_CONFIG } from "../config";
 import {
   searchSites,
-  getSiteByHostname,
   getProjectFolders,
   getSubFolders,
   getMailMimeContent,
@@ -208,18 +207,19 @@ export const Taskpane: React.FC = () => {
   const loadDefaultSite = async () => {
     setLoadingSites(true);
     try {
-      const defaultSite = await getSiteByHostname(
-        APP_CONFIG.defaultSiteHostname
-      );
-      setSites([defaultSite]);
-      setSelectedSiteId(defaultSite.id);
-      // Laad projecten voor de standaard site
-      await loadProjects(defaultSite.id);
-    } catch (error) {
-      console.error("Kan standaard site niet laden:", error);
-      // Probeer te zoeken
-      const results = await searchSites(APP_CONFIG.defaultSiteHostname);
+      // Laad alle sites waar de gebruiker toegang toe heeft
+      const results = await searchSites("*");
       setSites(results);
+      // Selecteer automatisch de standaard site als die gevonden wordt
+      const defaultSite = results.find((s) =>
+        s.webUrl?.includes(APP_CONFIG.defaultSiteHostname)
+      );
+      if (defaultSite) {
+        setSelectedSiteId(defaultSite.id);
+        await loadProjects(defaultSite.id);
+      }
+    } catch (error) {
+      console.error("Kan sites niet laden:", error);
     } finally {
       setLoadingSites(false);
     }
