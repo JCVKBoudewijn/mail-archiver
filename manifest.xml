@@ -6,7 +6,7 @@
   xsi:type="MailApp">
 
   <Id>635744e6-c67b-4da7-9a99-be4a90b70e7b</Id>
-  <Version>1.0.0.1</Version>
+  <Version>1.0.0.2</Version>
   <ProviderName>J.C. van Kessel</ProviderName>
   <DefaultLocale>nl-NL</DefaultLocale>
   <DisplayName DefaultValue="Mail naar SharePoint" />
@@ -138,6 +138,24 @@
           </DesktopFormFactor>
         </Host>
       </Hosts>
+
+      <Resources>
+        <bt:Images>
+          <bt:Image id="Icon.16x16" DefaultValue="https://jolly-flower-0f8beda03.2.azurestaticapps.net/assets/icon-16.png" />
+          <bt:Image id="Icon.32x32" DefaultValue="https://jolly-flower-0f8beda03.2.azurestaticapps.net/assets/icon-32.png" />
+          <bt:Image id="Icon.80x80" DefaultValue="https://jolly-flower-0f8beda03.2.azurestaticapps.net/assets/icon-80.png" />
+        </bt:Images>
+        <bt:Urls>
+          <bt:Url id="Taskpane.Url" DefaultValue="https://jolly-flower-0f8beda03.2.azurestaticapps.net/taskpane.html" />
+        </bt:Urls>
+        <bt:ShortStrings>
+          <bt:String id="GroupLabel" DefaultValue="Mail Archivering" />
+          <bt:String id="TaskpaneButton.Label" DefaultValue="Opslaan in SharePoint" />
+        </bt:ShortStrings>
+        <bt:LongStrings>
+          <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Sla deze e-mail op in een SharePoint projectmap" />
+        </bt:LongStrings>
+      </Resources>
 
       <WebApplicationInfo>
         <Id>06e23f21-f875-4425-aca3-ccd0b06bb24f</Id>
