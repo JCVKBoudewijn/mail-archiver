@@ -71,20 +71,32 @@ export interface RoamingData {
 /** Status van de opslag-actie */
 export type SaveStatus = "idle" | "saving" | "success" | "error";
 
-/** Configuratie per SharePoint site */
-export interface SiteConfig {
-  siteId: string;
-  siteName: string;
-  /** Basispad voor projectmappen, bijv. "Documenten/2. Werken" */
-  basePath: string;
+/** Bibliotheek configuratie binnen een organisatie */
+export interface OrgLibraryConfig {
+  /** Naam van de SharePoint drive/bibliotheek */
+  libraryName: string;
+  /** Optioneel subpad binnen de bibliotheek, bijv. "2. Werken" */
+  subPath?: string;
+}
+
+/** Organisatie configuratie voor auto-detectie */
+export interface OrgConfig {
+  /** Weergavenaam van de organisatie */
+  name: string;
+  /** E-maildomeinen die bij deze organisatie horen */
+  emailDomains: string[];
+  /** SharePoint site pad, bijv. "sites/Entropal717" */
+  siteUrl: string;
+  /** Bibliotheek configuratie voor Werken */
+  werken: OrgLibraryConfig;
+  /** Bibliotheek configuratie voor Projecten (null = nog niet beschikbaar) */
+  projecten: OrgLibraryConfig | null;
 }
 
 /** Applicatie configuratie */
 export interface AppConfig {
-  /** Standaard SharePoint site hostname, bijv. "jcvankessel.sharepoint.com" */
-  defaultSiteHostname: string;
-  /** Configuratie per site */
-  siteConfigs: SiteConfig[];
-  /** Standaard basispad als site niet in configs staat */
-  defaultBasePath: string;
+  /** SharePoint tenant hostname */
+  tenantHostname: string;
+  /** Organisatie configuraties voor auto-detectie */
+  orgConfigs: OrgConfig[];
 }

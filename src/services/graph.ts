@@ -66,6 +66,16 @@ async function graphFetch(
 }
 
 // ============================================================
+// Gebruiker
+// ============================================================
+
+/** Haal het e-mailadres van de ingelogde gebruiker op */
+export async function getUserEmail(): Promise<string> {
+  const data = await graphFetch(`/me?$select=mail,userPrincipalName`);
+  return data.mail || data.userPrincipalName || "";
+}
+
+// ============================================================
 // SharePoint Sites
 // ============================================================
 
@@ -174,6 +184,63 @@ export async function getSubFolders(
       webUrl: item.webUrl,
     }))
     .sort((a: SubFolder, b: SubFolder) => a.name.localeCompare(b.name));
+}
+
+/** Maak een submap aan binnen een folder (als die nog niet bestaat) */
+export async function getOrCreateSubFolder(
+  siteId: string,
+  driveId: string,
+  parentFolderId: string,
+  folderName: string
+): Promise<SubFolder> {
+  // Eerst kijken of de map al bestaat
+  const existing = await getSubFoldersInDrive(siteId, driveId, parentFolderId);
+  const found = existing.find((f) => f.name.toLowerCase() === folderName.toLowerCase());
+  if (found) return found;
+
+  // Map aanmaken
+  const data = await graphFetch(
+    `/sites/${siteId}/drives/${driveId}/items/${parentFolderId}/children`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name: folderName,
+        folder: {},
+        "@microsoft.graph.conflictBehavior": "fail",
+      }),
+    }
+  );
+
+  return { id: data.id, name: data.name, webUrl: data.webUrl };
+}
+
+/** Haal submappen op binnen een folder via drive ID */
+export async function getSubFoldersInDrive(
+  siteId: string,
+  driveId: string,
+  folderId: string
+): Promise<SubFolder[]> {
+  const data = await graphFetch(
+    `/sites/${siteId}/drives/${driveId}/items/${folderId}/children?$select=id,name,webUrl,folder&$top=100`
+  );
+
+  return (data.value || [])
+    .filter((item: any) => item.folder !== undefined)
+    .map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      webUrl: item.webUrl,
+    }))
+    .sort((a: SubFolder, b: SubFolder) => a.name.localeCompare(b.name));
+}
+
+/** Haal de drive ID op van een bibliotheek via naam */
+export async function getLibraryByName(
+  siteId: string,
+  libraryName: string
+): Promise<Library | null> {
+  const libs = await getLibraries(siteId);
+  return libs.find((l) => l.name === libraryName) || null;
 }
 
 // ============================================================
