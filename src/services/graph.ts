@@ -248,10 +248,11 @@ export async function getLibraryByName(
 // ============================================================
 
 /** Haal de MIME content (.eml) van een e-mail op */
-export async function getMailMimeContent(messageId: string): Promise<Blob> {
+export async function getMailMimeContent(messageId: string, mailboxUser?: string): Promise<Blob> {
   const token = await getAccessToken();
+  const mailboxPath = mailboxUser ? `/users/${encodeURIComponent(mailboxUser)}` : "/me";
   const response = await fetch(
-    `${GRAPH_BASE_URL}/me/messages/${messageId}/$value`,
+    `${GRAPH_BASE_URL}${mailboxPath}/messages/${messageId}/$value`,
     {
       headers: { Authorization: `Bearer ${token}` },
     }
@@ -345,9 +346,10 @@ export async function uploadToSharePoint(
 // ============================================================
 
 /** Haal alle mailmappen op (voor de archief-selector) */
-export async function getMailFolders(): Promise<MailFolder[]> {
+export async function getMailFolders(mailboxUser?: string): Promise<MailFolder[]> {
+  const mailboxPath = mailboxUser ? `/users/${encodeURIComponent(mailboxUser)}` : "/me";
   const data = await graphFetch(
-    `/me/mailFolders?$select=id,displayName,parentFolderId&$top=100`
+    `${mailboxPath}/mailFolders?$select=id,displayName,parentFolderId&$top=100`
   );
 
   return (data.value || []).map((folder: any) => ({
@@ -360,9 +362,11 @@ export async function getMailFolders(): Promise<MailFolder[]> {
 /** Verplaats een e-mail naar een andere map */
 export async function moveMailToFolder(
   messageId: string,
-  destinationFolderId: string
+  destinationFolderId: string,
+  mailboxUser?: string
 ): Promise<void> {
-  await graphFetch(`/me/messages/${messageId}/move`, {
+  const mailboxPath = mailboxUser ? `/users/${encodeURIComponent(mailboxUser)}` : "/me";
+  await graphFetch(`${mailboxPath}/messages/${messageId}/move`, {
     method: "POST",
     body: JSON.stringify({ destinationId: destinationFolderId }),
   });

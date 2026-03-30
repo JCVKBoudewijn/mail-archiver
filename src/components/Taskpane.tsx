@@ -230,6 +230,9 @@ export const Taskpane: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [isPrefilled, setIsPrefilled] = useState<boolean>(false);
 
+  // Gedeelde mailbox
+  const [sharedMailboxUser, setSharedMailboxUser] = useState<string | undefined>(undefined);
+
   // --- Helpers ---
   const getMailItem = () => Office.context.mailbox.item;
   const getConversationId = (): string | undefined => getMailItem()?.conversationId;
@@ -245,6 +248,8 @@ export const Taskpane: React.FC = () => {
 
   const initializeTaskpane = async () => {
     try {
+      let detectedSharedUser: string | undefined;
+
       // Mail metadata laden
       const item = getMailItem();
       if (item) {
@@ -261,6 +266,22 @@ export const Taskpane: React.FC = () => {
         setMailSender(sender);
         setMailRecipient(recipient);
         setFileName(generateEmailFileName(subject, dateReceived, fields, sender, recipient));
+
+        // Detecteer gedeelde mailbox (Office.js 1.8+, stille fallback op oudere versies)
+        if (typeof (item as any).getSharedPropertiesAsync === "function") {
+          await new Promise<void>((resolve) => {
+            (item as any).getSharedPropertiesAsync((result: any) => {
+              if (
+                result.status === Office.AsyncResultStatus.Succeeded &&
+                result.value?.targetMailbox
+              ) {
+                detectedSharedUser = result.value.targetMailbox;
+                setSharedMailboxUser(detectedSharedUser);
+              }
+              resolve();
+            });
+          });
+        }
       }
 
       // Org detectie
@@ -274,7 +295,7 @@ export const Taskpane: React.FC = () => {
         await initFallbackMode();
       }
 
-      loadMailFolders();
+      loadMailFolders(detectedSharedUser);
     } catch (error) {
       console.error("Initialisatie fout:", error);
       setOrgLoading(false);
@@ -401,9 +422,9 @@ export const Taskpane: React.FC = () => {
     setIsPrefilled(false);
   };
 
-  const loadMailFolders = async () => {
+  const loadMailFolders = async (mailboxUser?: string) => {
     try {
-      setMailFolders(await getMailFolders());
+      setMailFolders(await getMailFolders(mailboxUser));
     } catch (error) {
       console.error("Kan mail folders niet laden:", error);
     }
@@ -556,7 +577,7 @@ export const Taskpane: React.FC = () => {
 
     try {
       const itemId = (item as any).itemId || item.itemId;
-      const emlBlob = await getMailMimeContent(itemId);
+      const emlBlob = await getMailMimeContent(itemId, sharedMailboxUser);
 
       let targetFolderId: string;
 
@@ -606,7 +627,7 @@ export const Taskpane: React.FC = () => {
       }
 
       if (selectedArchiveFolderId) {
-        await moveMailToFolder(itemId, selectedArchiveFolderId);
+        await moveMailToFolder(itemId, selectedArchiveFolderId, sharedMailboxUser);
       }
 
       setSaveStatus("success");
@@ -619,7 +640,7 @@ export const Taskpane: React.FC = () => {
   }, [
     activeSiteId, activeDriveId, selectedProjectId, selectedSubFolderId,
     selectedArchiveFolderId, fileName, detectedOrg, orgSiteId, orgDriveId,
-    workType, sites, libraries, projects, subFolders, mailFolders,
+    workType, sites, libraries, projects, subFolders, mailFolders, sharedMailboxUser,
   ]);
 
   // --- Gefilterde projecten ---

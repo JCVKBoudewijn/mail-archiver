@@ -15,6 +15,7 @@ const GRAPH_SCOPES = [
 const TOKEN_KEY = "mailsp_token";
 const TOKEN_EXPIRY_KEY = "mailsp_token_expiry";
 const TOKEN_SOURCE_KEY = "mailsp_token_source";
+const REFRESH_TOKEN_KEY = "mailsp_refresh_token";
 
 let cachedToken: string | null = sessionStorage.getItem(TOKEN_KEY);
 let tokenExpiry: number = Number(sessionStorage.getItem(TOKEN_EXPIRY_KEY) || "0");
@@ -49,11 +50,21 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
 
 /**
  * Verkrijg een access token via Office SSO.
- * Probeert eerst SSO; bij falen wordt PKCE dialog flow gebruikt.
+ * Probeert eerst SSO; bij falen refresh token; daarna PKCE dialog flow.
  */
 export async function getAccessToken(): Promise<string> {
   if (cachedToken && Date.now() < tokenExpiry - 300_000) {
     return cachedToken;
+  }
+
+  // Probeer silent refresh via opgeslagen refresh token (geen popup)
+  const storedRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+  if (storedRefreshToken) {
+    try {
+      return await refreshAccessToken(storedRefreshToken);
+    } catch {
+      localStorage.removeItem(REFRESH_TOKEN_KEY);
+    }
   }
 
   // Als SSO-token eerder 401 gaf op Graph, sla SSO over en gebruik direct PKCE
@@ -92,6 +103,42 @@ export async function getAccessToken(): Promise<string> {
       `Authenticatie mislukt (code: ${code}). Probeer de add-in opnieuw te openen.`
     );
   }
+}
+
+async function refreshAccessToken(refreshToken: string): Promise<string> {
+  const body = new URLSearchParams({
+    client_id: CLIENT_ID,
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    scope: GRAPH_SCOPES.join(" ") + " offline_access",
+  });
+
+  const response = await fetch(
+    "https://login.microsoftonline.com/eba9b46b-0bb0-493e-8724-854a60012ad4/oauth2/v2.0/token",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Refresh token mislukt (${response.status})`);
+  }
+
+  const data = await response.json();
+
+  cachedToken = data.access_token;
+  tokenExpiry = Date.now() + 3_600_000;
+  sessionStorage.setItem(TOKEN_KEY, data.access_token);
+  sessionStorage.setItem(TOKEN_EXPIRY_KEY, tokenExpiry.toString());
+  sessionStorage.setItem(TOKEN_SOURCE_KEY, "refresh");
+
+  if (data.refresh_token) {
+    localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
+  }
+
+  return data.access_token;
 }
 
 /**
@@ -143,13 +190,16 @@ async function fallbackToDialogAuth(): Promise<string> {
               }
 
               // Wissel de code in voor een access token
-              const token = await exchangeCodeForToken(message.code, verifier, redirectUri);
-              cachedToken = token;
+              const { accessToken, refreshToken } = await exchangeCodeForToken(message.code, verifier, redirectUri);
+              cachedToken = accessToken;
               tokenExpiry = Date.now() + 3_600_000;
-              sessionStorage.setItem(TOKEN_KEY, token);
+              sessionStorage.setItem(TOKEN_KEY, accessToken);
               sessionStorage.setItem(TOKEN_EXPIRY_KEY, tokenExpiry.toString());
               sessionStorage.setItem(TOKEN_SOURCE_KEY, "pkce");
-              resolve(token);
+              if (refreshToken) {
+                localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+              }
+              resolve(accessToken);
             } catch (e: any) {
               reject(new Error(e.message || "Ongeldig antwoord van login dialog."));
             }
@@ -171,7 +221,7 @@ async function exchangeCodeForToken(
   code: string,
   verifier: string,
   redirectUri: string
-): Promise<string> {
+): Promise<{ accessToken: string; refreshToken?: string }> {
   const body = new URLSearchParams({
     client_id: CLIENT_ID,
     grant_type: "authorization_code",
@@ -195,16 +245,19 @@ async function exchangeCodeForToken(
   }
 
   const data = await response.json();
-  return data.access_token;
+  return { accessToken: data.access_token, refreshToken: data.refresh_token };
 }
 
 /** Reset de token cache (bijv. bij logout of token error) */
-export function clearTokenCache(): void {
+export function clearTokenCache(includeRefreshToken = false): void {
   cachedToken = null;
   tokenExpiry = 0;
   sessionStorage.removeItem(TOKEN_KEY);
   sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
   sessionStorage.removeItem(TOKEN_SOURCE_KEY);
+  if (includeRefreshToken) {
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+  }
 }
 
 /**
