@@ -81,8 +81,10 @@ export async function getUserEmail(): Promise<string> {
 
 /** Zoek SharePoint sites binnen de organisatie */
 export async function searchSites(query: string): Promise<SharePointSite[]> {
+  // Voor wildcard-query ("*"): gebruik lege search voor alle sites
+  const searchQuery = query === "*" ? "" : query;
   const data = await graphFetch(
-    `/sites?search=${encodeURIComponent(query)}&$select=id,displayName,webUrl&$top=20`
+    `/sites?search=${encodeURIComponent(searchQuery)}&$select=id,displayName,webUrl&$top=100`
   );
   return (data.value || []).map((site: any) => ({
     id: site.id,
