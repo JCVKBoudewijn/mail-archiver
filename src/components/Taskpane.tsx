@@ -29,7 +29,6 @@ import type {
 import { APP_CONFIG, AUTO_SUBFOLDER_NAME, PROJECT_NUMBER_REGEX } from "../config";
 import { FileNameBuilder } from "./FileNameBuilder";
 import {
-  getUserEmail,
   getSiteByHostname,
   getLibraries,
   getLibraryByName,
@@ -257,7 +256,9 @@ export const Taskpane: React.FC = () => {
       }
 
       // Org detecteren op basis van actieve mailbox (gedeeld of eigen)
-      const emailForDetection = mailboxEmail || await getUserEmail();
+      // Office.js heeft het e-mailadres lokaal beschikbaar — geen Graph call nodig
+      const ownEmail = Office.context.mailbox.userProfile.emailAddress;
+      const emailForDetection = mailboxEmail || ownEmail;
       const org = detectOrg(emailForDetection);
       setDetectedOrg(org);
 
