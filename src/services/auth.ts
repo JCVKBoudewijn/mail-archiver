@@ -17,6 +17,7 @@ const TOKEN_KEY = "mailsp_token";
 const TOKEN_EXPIRY_KEY = "mailsp_token_expiry";
 const TOKEN_SOURCE_KEY = "mailsp_token_source";
 const REFRESH_TOKEN_KEY = "mailsp_refresh_token";
+const TOKEN_SCOPES_KEY = "mailsp_token_scopes";
 
 let cachedToken: string | null = sessionStorage.getItem(TOKEN_KEY);
 let tokenExpiry: number = Number(sessionStorage.getItem(TOKEN_EXPIRY_KEY) || "0");
@@ -24,6 +25,19 @@ let tokenExpiry: number = Number(sessionStorage.getItem(TOKEN_EXPIRY_KEY) || "0"
 /** Houdt bij of het SSO-token al gefaald heeft voor Graph (401).
  *  Als dat zo is, slaan we SSO over en gaan direct naar PKCE. */
 let ssoFailedForGraph: boolean = false;
+
+/** Check of opgeslagen token voldoende scopes heeft; clear anders */
+function validateTokenScopes(): void {
+  const storedScopesStr = sessionStorage.getItem(TOKEN_SCOPES_KEY);
+  const storedScopes = storedScopesStr ? JSON.parse(storedScopesStr) : [];
+  const currentScopesStr = JSON.stringify(GRAPH_SCOPES.sort());
+  const storedScopesStr2 = JSON.stringify(storedScopes.sort());
+
+  if (currentScopesStr !== storedScopesStr2) {
+    console.log("[auth] Token scopes mismatch — clearing old tokens");
+    clearTokenCache(true);
+  }
+}
 
 // ── PKCE helpers ──────────────────────────────────────────────────────────────
 
@@ -54,6 +68,8 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
  * Probeert eerst SSO; bij falen refresh token; daarna PKCE dialog flow.
  */
 export async function getAccessToken(): Promise<string> {
+  validateTokenScopes();
+
   if (cachedToken && Date.now() < tokenExpiry - 300_000) {
     return cachedToken;
   }
@@ -86,6 +102,7 @@ export async function getAccessToken(): Promise<string> {
     sessionStorage.setItem(TOKEN_KEY, bootstrapToken);
     sessionStorage.setItem(TOKEN_EXPIRY_KEY, tokenExpiry.toString());
     sessionStorage.setItem(TOKEN_SOURCE_KEY, "sso");
+    sessionStorage.setItem(TOKEN_SCOPES_KEY, JSON.stringify(GRAPH_SCOPES));
     return bootstrapToken;
   } catch (error: any) {
     const code = error?.code;
@@ -134,6 +151,7 @@ async function refreshAccessToken(refreshToken: string): Promise<string> {
   sessionStorage.setItem(TOKEN_KEY, data.access_token);
   sessionStorage.setItem(TOKEN_EXPIRY_KEY, tokenExpiry.toString());
   sessionStorage.setItem(TOKEN_SOURCE_KEY, "refresh");
+  sessionStorage.setItem(TOKEN_SCOPES_KEY, JSON.stringify(GRAPH_SCOPES));
 
   if (data.refresh_token) {
     localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
@@ -197,6 +215,7 @@ async function fallbackToDialogAuth(): Promise<string> {
               sessionStorage.setItem(TOKEN_KEY, accessToken);
               sessionStorage.setItem(TOKEN_EXPIRY_KEY, tokenExpiry.toString());
               sessionStorage.setItem(TOKEN_SOURCE_KEY, "pkce");
+              sessionStorage.setItem(TOKEN_SCOPES_KEY, JSON.stringify(GRAPH_SCOPES));
               if (refreshToken) {
                 localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
               }
@@ -256,6 +275,7 @@ export function clearTokenCache(includeRefreshToken = false): void {
   sessionStorage.removeItem(TOKEN_KEY);
   sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
   sessionStorage.removeItem(TOKEN_SOURCE_KEY);
+  sessionStorage.removeItem(TOKEN_SCOPES_KEY);
   if (includeRefreshToken) {
     localStorage.removeItem(REFRESH_TOKEN_KEY);
   }
