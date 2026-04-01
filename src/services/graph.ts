@@ -223,6 +223,7 @@ export async function getMailMimeContent(messageId: string, mailboxUser?: string
  */
 export async function uploadToSharePoint(
   siteId: string,
+  driveId: string,
   folderId: string,
   fileName: string,
   content: Blob
@@ -232,7 +233,7 @@ export async function uploadToSharePoint(
   if (content.size < 4_000_000) {
     const token = await getAccessToken();
     const response = await fetch(
-      `${GRAPH_BASE_URL}/sites/${siteId}/drive/items/${folderId}:/${encodeURIComponent(sanitizedName)}:/content`,
+      `${GRAPH_BASE_URL}/sites/${siteId}/drives/${driveId}/items/${folderId}:/${encodeURIComponent(sanitizedName)}:/content`,
       {
         method: "PUT",
         headers: {
@@ -253,7 +254,7 @@ export async function uploadToSharePoint(
 
   // Grote bestanden: upload session
   const sessionData = await graphFetch(
-    `/sites/${siteId}/drive/items/${folderId}:/${encodeURIComponent(sanitizedName)}:/createUploadSession`,
+    `/sites/${siteId}/drives/${driveId}/items/${folderId}:/${encodeURIComponent(sanitizedName)}:/createUploadSession`,
     {
       method: "POST",
       body: JSON.stringify({

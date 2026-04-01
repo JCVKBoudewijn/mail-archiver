@@ -443,7 +443,7 @@ export const Taskpane: React.FC = () => {
         siteId, driveId, selectedProjectId, AUTO_SUBFOLDER_NAME
       );
 
-      await uploadToSharePoint(siteId, corrFolder.id, fileName, emlBlob);
+      await uploadToSharePoint(siteId, driveId, corrFolder.id, fileName, emlBlob);
 
       // Conversatie-history opslaan
       const conversationId = item.conversationId;
