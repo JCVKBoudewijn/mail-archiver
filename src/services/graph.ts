@@ -296,18 +296,32 @@ export async function uploadToSharePoint(
 // Outlook Mail Folders (voor archivering)
 // ============================================================
 
-/** Haal alle mailmappen op (voor de archief-selector) */
+/**
+ * Haal mailmappen op inclusief één niveau submappen.
+ * Resultaat is een platte lijst; submappen krijgen een inspringing in displayName.
+ */
 export async function getMailFolders(mailboxUser?: string): Promise<MailFolder[]> {
   const mailboxPath = mailboxUser ? `/users/${encodeURIComponent(mailboxUser)}` : "/me";
   const data = await graphFetch(
-    `${mailboxPath}/mailFolders?$select=id,displayName,parentFolderId&$top=100`
+    `${mailboxPath}/mailFolders?$select=id,displayName,parentFolderId&$top=100&$expand=childFolders($select=id,displayName,parentFolderId)`
   );
 
-  return (data.value || []).map((folder: any) => ({
-    id: folder.id,
-    displayName: folder.displayName,
-    parentFolderId: folder.parentFolderId,
-  }));
+  const result: MailFolder[] = [];
+  for (const folder of data.value || []) {
+    result.push({
+      id: folder.id,
+      displayName: folder.displayName,
+      parentFolderId: folder.parentFolderId,
+    });
+    for (const child of folder.childFolders || []) {
+      result.push({
+        id: child.id,
+        displayName: `${folder.displayName} › ${child.displayName}`,
+        parentFolderId: child.parentFolderId,
+      });
+    }
+  }
+  return result;
 }
 
 /** Verplaats een e-mail naar een andere map */

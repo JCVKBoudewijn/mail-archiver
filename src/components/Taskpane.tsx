@@ -419,7 +419,12 @@ export const Taskpane: React.FC = () => {
     setErrorMessage("");
 
     try {
-      const itemId = (item as any).itemId || item.itemId;
+      // Office.js geeft EWS-formaat ID terug; Graph API verwacht REST-formaat
+      const ewsId = (item as any).itemId || item.itemId;
+      const itemId = Office.context.mailbox.convertToRestId(
+        ewsId,
+        Office.MailboxEnums.RestVersion.v2_0
+      );
       const emlBlob = await getMailMimeContent(itemId, sharedMailboxUser);
 
       // Auto-create Correspondentie submap en upload daarin
