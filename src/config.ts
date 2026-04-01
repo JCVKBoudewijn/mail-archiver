@@ -28,7 +28,7 @@ export const APP_CONFIG: AppConfig = {
       werken: {
         libraryName: "SC  Werken",
       },
-      projecten: null, // nog niet beschikbaar
+      projecten: null,
     },
     {
       name: "SolarTek",
@@ -37,7 +37,19 @@ export const APP_CONFIG: AppConfig = {
       werken: {
         libraryName: "Projecten",
       },
-      projecten: null, // nog niet beschikbaar
+      projecten: null,
+    },
+    {
+      name: "JC van Kessel Bouw",
+      emailDomains: ["jcvankessel.nl"],
+      siteUrl: "sites/J.C.vanKesselBouwBV",
+      // TODO: controleer de juiste bibliotheeksnamen in SharePoint
+      werken: {
+        libraryName: "Werken",
+      },
+      projecten: {
+        libraryName: "Projecten",
+      },
     },
   ],
 };
@@ -48,8 +60,8 @@ export const GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0";
 /** Maximale grootte van roaming settings in bytes (Office limiet) */
 export const ROAMING_SETTINGS_MAX_BYTES = 32_768; // 32 KB
 
-/** Projectnummer regex: YY-XXX formaat */
-export const PROJECT_NUMBER_REGEX = /^\d{2}-\d{3}/;
+/** Projectnummer regex: YY-XXX formaat, vindbaar op elke positie in tekst */
+export const PROJECT_NUMBER_REGEX = /\b\d{2}-\d{3}\b/;
 
 /** Naam van de automatisch aan te maken submap */
 export const AUTO_SUBFOLDER_NAME = "Correspondentie";

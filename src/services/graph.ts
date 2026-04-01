@@ -31,9 +31,6 @@ async function graphFetch(
   });
 
   if (response.status === 401) {
-    // Als het token via SSO was verkregen, is het waarschijnlijk een bootstrap
-    // token dat niet werkt voor Graph (geen server-side OBO exchange).
-    // Markeer SSO als gefaald zodat volgende calls direct PKCE gebruiken.
     if (isTokenFromSso()) {
       console.warn("[graphFetch] SSO-token gaf 401 op Graph – schakel over naar PKCE");
       markSsoFailedForGraph();
@@ -79,20 +76,6 @@ export async function getUserEmail(): Promise<string> {
 // SharePoint Sites
 // ============================================================
 
-/** Zoek SharePoint sites binnen de organisatie */
-export async function searchSites(query: string): Promise<SharePointSite[]> {
-  // Voor wildcard-query ("*"): gebruik lege search voor alle sites
-  const searchQuery = query === "*" ? "" : query;
-  const data = await graphFetch(
-    `/sites?search=${encodeURIComponent(searchQuery)}&$select=id,displayName,webUrl&$top=100`
-  );
-  return (data.value || []).map((site: any) => ({
-    id: site.id,
-    displayName: site.displayName,
-    webUrl: site.webUrl,
-  }));
-}
-
 /** Haal een specifieke site op via hostname en pad */
 export async function getSiteByHostname(
   hostname: string,
@@ -113,17 +96,6 @@ export async function getSiteByHostname(
 // SharePoint Bibliotheken
 // ============================================================
 
-/** Haal mappen op in de root van een bibliotheek (voor subpad-kiezer) */
-export async function getRootFolders(siteId: string, libraryId: string): Promise<SubFolder[]> {
-  const data = await graphFetch(
-    `/sites/${siteId}/drives/${libraryId}/root/children?$select=id,name,webUrl,folder&$top=100`
-  );
-  return (data.value || [])
-    .filter((item: any) => item.folder !== undefined)
-    .map((item: any) => ({ id: item.id, name: item.name, webUrl: item.webUrl }))
-    .sort((a: SubFolder, b: SubFolder) => a.name.localeCompare(b.name));
-}
-
 /** Haal alle documentbibliotheken op van een SharePoint site */
 export async function getLibraries(siteId: string): Promise<Library[]> {
   const data = await graphFetch(
@@ -139,14 +111,21 @@ export async function getLibraries(siteId: string): Promise<Library[]> {
     .sort((a: Library, b: Library) => a.name.localeCompare(b.name));
 }
 
+/** Haal de drive ID op van een bibliotheek via naam */
+export async function getLibraryByName(
+  siteId: string,
+  libraryName: string
+): Promise<Library | null> {
+  const libs = await getLibraries(siteId);
+  return libs.find((l) => l.name === libraryName) || null;
+}
+
 // ============================================================
-// SharePoint Folders (Projecten & Submappen)
+// SharePoint Folders (Projecten)
 // ============================================================
 
 /**
  * Haal projectmappen op vanuit een bibliotheek, optioneel binnen een subpad.
- * libraryId: drive ID van de bibliotheek
- * subPath: optioneel subpad binnen de bibliotheek, bijv. "2. Werken"
  */
 export async function getProjectFolders(
   siteId: string,
@@ -169,25 +148,6 @@ export async function getProjectFolders(
     .sort((a: ProjectFolder, b: ProjectFolder) => b.name.localeCompare(a.name));
 }
 
-/** Haal submappen op binnen een projectfolder */
-export async function getSubFolders(
-  siteId: string,
-  folderId: string
-): Promise<SubFolder[]> {
-  const data = await graphFetch(
-    `/sites/${siteId}/drive/items/${folderId}/children?$select=id,name,webUrl,folder&$top=100`
-  );
-
-  return (data.value || [])
-    .filter((item: any) => item.folder !== undefined)
-    .map((item: any) => ({
-      id: item.id,
-      name: item.name,
-      webUrl: item.webUrl,
-    }))
-    .sort((a: SubFolder, b: SubFolder) => a.name.localeCompare(b.name));
-}
-
 /** Maak een submap aan binnen een folder (als die nog niet bestaat) */
 export async function getOrCreateSubFolder(
   siteId: string,
@@ -195,12 +155,10 @@ export async function getOrCreateSubFolder(
   parentFolderId: string,
   folderName: string
 ): Promise<SubFolder> {
-  // Eerst kijken of de map al bestaat
   const existing = await getSubFoldersInDrive(siteId, driveId, parentFolderId);
   const found = existing.find((f) => f.name.toLowerCase() === folderName.toLowerCase());
   if (found) return found;
 
-  // Map aanmaken
   const data = await graphFetch(
     `/sites/${siteId}/drives/${driveId}/items/${parentFolderId}/children`,
     {
@@ -234,15 +192,6 @@ export async function getSubFoldersInDrive(
       webUrl: item.webUrl,
     }))
     .sort((a: SubFolder, b: SubFolder) => a.name.localeCompare(b.name));
-}
-
-/** Haal de drive ID op van een bibliotheek via naam */
-export async function getLibraryByName(
-  siteId: string,
-  libraryName: string
-): Promise<Library | null> {
-  const libs = await getLibraries(siteId);
-  return libs.find((l) => l.name === libraryName) || null;
 }
 
 // ============================================================
@@ -280,7 +229,6 @@ export async function uploadToSharePoint(
   const sanitizedName = sanitizeFileName(fileName);
 
   if (content.size < 4_000_000) {
-    // Kleine bestanden: directe upload
     const token = await getAccessToken();
     const response = await fetch(
       `${GRAPH_BASE_URL}/sites/${siteId}/drive/items/${folderId}:/${encodeURIComponent(sanitizedName)}:/content`,
@@ -316,7 +264,7 @@ export async function uploadToSharePoint(
   const uploadUrl = sessionData.uploadUrl;
   const token = await getAccessToken();
   const arrayBuffer = await content.arrayBuffer();
-  const chunkSize = 3_276_800; // ~3.1 MB chunks
+  const chunkSize = 3_276_800;
   let offset = 0;
 
   while (offset < arrayBuffer.byteLength) {
@@ -385,7 +333,6 @@ function sanitizeFileName(name: string): string {
 
 /**
  * Genereer de bestandsnaam voor een e-mail op basis van geconfigureerde velden.
- * Velden worden samengevoegd met " - " als separator.
  */
 export function generateEmailFileName(
   subject: string,

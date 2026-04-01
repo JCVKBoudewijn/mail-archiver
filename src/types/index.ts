@@ -33,18 +33,16 @@ export interface MailFolder {
   parentFolderId?: string;
 }
 
+/** Werken of Projecten bibliotheek */
+export type WorkType = "werken" | "projecten";
+
 /** Opgeslagen instellingen per conversatie (roaming settings) */
 export interface ConversationHistory {
   conversationId: string;
   normalizedSubject?: string;
-  siteId: string;
-  siteName: string;
-  libraryId: string;
-  libraryName: string;
+  workType: WorkType;
   projectFolderId: string;
   projectFolderName: string;
-  subFolderId: string;
-  subFolderName: string;
   archiveMailFolderId?: string;
   archiveMailFolderName?: string;
   timestamp: number;
@@ -55,7 +53,7 @@ export type FileNameField = "date" | "subject" | "sender" | "recipient";
 
 /** Configuratie voor bestandsnaam opbouw */
 export interface FileNameConfig {
-  fields: FileNameField[];  // volgorde + welke velden actief zijn
+  fields: FileNameField[];
 }
 
 export const DEFAULT_FILENAME_CONFIG: FileNameConfig = {
