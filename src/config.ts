@@ -28,7 +28,9 @@ export const APP_CONFIG: AppConfig = {
       werken: {
         libraryName: "SC - Werken",
       },
-      projecten: null,
+      projecten: {
+        libraryName: "Offertes",
+      },
     },
     {
       name: "SolarTek",
