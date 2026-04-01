@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Button,
   Combobox,
@@ -168,6 +168,7 @@ export const Taskpane: React.FC = () => {
   // Actieve SharePoint-locatie (ingesteld vanuit org-config)
   const [siteId, setSiteId] = useState<string>("");
   const [driveId, setDriveId] = useState<string>("");
+  const siteIdRef = useRef<string>("");
 
   // Fallback: bibliotheek handmatig kiezen als auto-detectie mislukt
   const [libraries, setLibraries] = useState<Library[]>([]);
@@ -289,6 +290,7 @@ export const Taskpane: React.FC = () => {
     try {
       const site = await getSiteByHostname(APP_CONFIG.tenantHostname, org.siteUrl);
       setSiteId(site.id);
+      siteIdRef.current = site.id;
 
       const libConfig = org.werken;
       const lib = await getLibraryByName(site.id, libConfig.libraryName);
@@ -363,12 +365,17 @@ export const Taskpane: React.FC = () => {
     setProjectInput("");
     setLoadingProjects(true);
 
+    // Gebruik ref zodat we altijd de actuele siteId hebben (niet stale state)
+    const currentSiteId = siteIdRef.current;
+
     try {
-      const lib = await getLibraryByName(siteId, libConfig.libraryName);
+      const lib = await getLibraryByName(currentSiteId, libConfig.libraryName);
       if (lib) {
         setDriveId(lib.id);
-        const folders = await getProjectFolders(siteId, lib.id, libConfig.subPath);
+        const folders = await getProjectFolders(currentSiteId, lib.id, libConfig.subPath);
         setProjects(folders);
+      } else {
+        console.warn(`Bibliotheek "${libConfig.libraryName}" niet gevonden`);
       }
     } catch (error) {
       console.error("Bibliotheek wisselen mislukt:", error);
@@ -420,12 +427,15 @@ export const Taskpane: React.FC = () => {
     setErrorMessage("");
 
     try {
-      // Office.js geeft EWS-formaat ID terug; Graph API verwacht REST-formaat
+      // Office.js geeft EWS-formaat ID terug; Graph API verwacht REST-formaat.
+      // convertToRestId is alleen beschikbaar in klassiek Outlook desktop — in
+      // web geeft item.itemId al een REST-compatibel ID terug.
       const ewsId = (item as any).itemId || item.itemId;
-      const itemId = Office.context.mailbox.convertToRestId(
-        ewsId,
-        Office.MailboxEnums.RestVersion.v2_0
-      );
+      const itemId =
+        typeof Office.context.mailbox.convertToRestId === "function"
+          ? Office.context.mailbox.convertToRestId(ewsId, Office.MailboxEnums.RestVersion.v2_0)
+          : ewsId;
+      console.log("[save] itemId:", itemId, "sharedMailboxUser:", sharedMailboxUser);
       const emlBlob = await getMailMimeContent(itemId, sharedMailboxUser);
 
       // Auto-create Correspondentie submap en upload daarin

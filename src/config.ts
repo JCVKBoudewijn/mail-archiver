@@ -26,7 +26,7 @@ export const APP_CONFIG: AppConfig = {
       emailDomains: ["solarcomfort.nl"],
       siteUrl: "sites/SolarComfortSolarTekPlanning",
       werken: {
-        libraryName: "SC  Werken",
+        libraryName: "SC - Werken",
       },
       projecten: null,
     },
