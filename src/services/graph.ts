@@ -111,13 +111,14 @@ export async function getLibraries(siteId: string): Promise<Library[]> {
     .sort((a: Library, b: Library) => a.name.localeCompare(b.name));
 }
 
-/** Haal de drive ID op van een bibliotheek via naam */
+/** Haal de drive ID op van een bibliotheek via naam (case-insensitief) */
 export async function getLibraryByName(
   siteId: string,
   libraryName: string
 ): Promise<Library | null> {
   const libs = await getLibraries(siteId);
-  return libs.find((l) => l.name === libraryName) || null;
+  const normalized = libraryName.trim().toLowerCase();
+  return libs.find((l) => l.name.trim().toLowerCase() === normalized) || null;
 }
 
 // ============================================================

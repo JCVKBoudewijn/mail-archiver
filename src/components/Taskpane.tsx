@@ -19,6 +19,7 @@ import {
 
 import type {
   ProjectFolder,
+  Library,
   MailFolder,
   SaveStatus,
   FileNameField,
@@ -30,6 +31,7 @@ import { FileNameBuilder } from "./FileNameBuilder";
 import {
   getUserEmail,
   getSiteByHostname,
+  getLibraries,
   getLibraryByName,
   getProjectFolders,
   getOrCreateSubFolder,
@@ -168,6 +170,10 @@ export const Taskpane: React.FC = () => {
   const [siteId, setSiteId] = useState<string>("");
   const [driveId, setDriveId] = useState<string>("");
 
+  // Fallback: bibliotheek handmatig kiezen als auto-detectie mislukt
+  const [libraries, setLibraries] = useState<Library[]>([]);
+  const [selectedLibraryId, setSelectedLibraryId] = useState<string>("");
+
   // Projecten
   const [projects, setProjects] = useState<ProjectFolder[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
@@ -285,32 +291,61 @@ export const Taskpane: React.FC = () => {
 
       const libConfig = org.werken;
       const lib = await getLibraryByName(site.id, libConfig.libraryName);
+
       if (!lib) {
-        setOrgError(`Bibliotheek "${libConfig.libraryName}" niet gevonden in SharePoint.`);
-        return;
+        // Bibliotheek niet gevonden op naam — toon fallback dropdown met alle bibliotheken
+        console.warn(`Bibliotheek "${libConfig.libraryName}" niet gevonden, fallback naar handmatige selectie`);
+        const allLibs = await getLibraries(site.id);
+        setLibraries(allLibs);
+        return; // driveId blijft leeg → UI toont bibliotheek-dropdown
       }
-      setDriveId(lib.id);
 
-      const folders = await getProjectFolders(site.id, lib.id, libConfig.subPath);
-      setProjects(folders);
-
-      // Vorige keuze terugzetten via conversatie-history
-      const history =
-        (conversationId ? getHistoryForConversation(conversationId) : undefined) ??
-        (normalizedSubject
-          ? loadConversationHistory().find((h) => h.normalizedSubject === normalizedSubject)
-          : undefined);
-
-      if (history && folders.find((p) => p.id === history.projectFolderId)) {
-        setSelectedProjectId(history.projectFolderId);
-        setProjectInput(history.projectFolderName);
-        if (history.archiveMailFolderId) setSelectedArchiveFolderId(history.archiveMailFolderId);
-      }
+      await loadLibraryAndProjects(site.id, lib.id, libConfig.subPath, conversationId, normalizedSubject);
     } catch (error) {
       console.error("Org-mode initialisatie mislukt:", error);
       setOrgError("Kan SharePoint site niet bereiken.");
     } finally {
       setOrgLoading(false);
+    }
+  };
+
+  const loadLibraryAndProjects = async (
+    resolvedSiteId: string,
+    resolvedDriveId: string,
+    subPath?: string,
+    conversationId?: string,
+    normalizedSubject?: string
+  ) => {
+    setDriveId(resolvedDriveId);
+    const folders = await getProjectFolders(resolvedSiteId, resolvedDriveId, subPath);
+    setProjects(folders);
+
+    const history =
+      (conversationId ? getHistoryForConversation(conversationId) : undefined) ??
+      (normalizedSubject
+        ? loadConversationHistory().find((h) => h.normalizedSubject === normalizedSubject)
+        : undefined);
+
+    if (history && folders.find((p) => p.id === history.projectFolderId)) {
+      setSelectedProjectId(history.projectFolderId);
+      setProjectInput(history.projectFolderName);
+      if (history.archiveMailFolderId) setSelectedArchiveFolderId(history.archiveMailFolderId);
+    }
+  };
+
+  const handleFallbackLibraryChange = async (_: any, data: any) => {
+    const libId = data.optionValue;
+    setSelectedLibraryId(libId);
+    setProjects([]);
+    setSelectedProjectId("");
+    setProjectInput("");
+    setLoadingProjects(true);
+    try {
+      await loadLibraryAndProjects(siteId, libId);
+    } catch (error) {
+      console.error("Projecten laden mislukt:", error);
+    } finally {
+      setLoadingProjects(false);
     }
   };
 
@@ -485,6 +520,26 @@ export const Taskpane: React.FC = () => {
             </ToggleButton>
           </div>
         </div>
+
+        {/* Fallback: bibliotheek handmatig kiezen als auto-detectie mislukt */}
+        {libraries.length > 0 && !driveId && (
+          <div className={styles.fieldGroup}>
+            <Text className={styles.label}>Bibliotheek</Text>
+            <Text style={{ fontSize: tokens.fontSizeBase200, color: tokens.colorPaletteYellowForeground1 }}>
+              Bibliotheek niet automatisch gevonden — kies handmatig:
+            </Text>
+            <Dropdown
+              placeholder="Selecteer bibliotheek..."
+              value={libraries.find((l) => l.id === selectedLibraryId)?.name ?? ""}
+              selectedOptions={selectedLibraryId ? [selectedLibraryId] : []}
+              onOptionSelect={handleFallbackLibraryChange}
+            >
+              {libraries.map((lib) => (
+                <Option key={lib.id} value={lib.id}>{lib.name}</Option>
+              ))}
+            </Dropdown>
+          </div>
+        )}
 
         {/* Project selectie */}
         <div className={styles.fieldGroup}>
