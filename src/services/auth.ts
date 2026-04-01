@@ -10,6 +10,7 @@ const GRAPH_SCOPES = [
   "Files.ReadWrite.All",
   "Sites.Read.All",
   "Mail.ReadWrite",
+  "Mail.ReadWrite.Shared",
 ];
 
 const TOKEN_KEY = "mailsp_token";
