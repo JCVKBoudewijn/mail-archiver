@@ -333,6 +333,10 @@ export const Taskpane: React.FC = () => {
       setSelectedProjectId(history.projectFolderId);
       setProjectInput(history.projectFolderName);
       if (history.archiveMailFolderId) setSelectedArchiveFolderId(history.archiveMailFolderId);
+      if (history.fileNameFields) {
+        setFileNameFields(history.fileNameFields);
+        setFileName(generateEmailFileName(mailSubject, mailDate, history.fileNameFields, mailSender, mailRecipient));
+      }
     }
   };
 
@@ -457,6 +461,7 @@ export const Taskpane: React.FC = () => {
           projectFolderName: selectedProject?.name ?? "",
           archiveMailFolderId: selectedArchiveFolderId || undefined,
           archiveMailFolderName: mailFolders.find((f) => f.id === selectedArchiveFolderId)?.displayName,
+          fileNameFields,
           timestamp: Date.now(),
         });
       }

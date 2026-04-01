@@ -45,6 +45,7 @@ export interface ConversationHistory {
   projectFolderName: string;
   archiveMailFolderId?: string;
   archiveMailFolderName?: string;
+  fileNameFields?: FileNameField[];
   timestamp: number;
 }
 

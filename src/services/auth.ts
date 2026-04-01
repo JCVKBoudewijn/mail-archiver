@@ -70,17 +70,21 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
 export async function getAccessToken(): Promise<string> {
   validateTokenScopes();
 
+  // Zolang token niet verlopen is, gebruik cached
   if (cachedToken && Date.now() < tokenExpiry - 300_000) {
     return cachedToken;
   }
 
-  // Probeer silent refresh via opgeslagen refresh token (geen popup)
+  // Probeer eerst silent refresh via opgeslagen refresh token (geen popup)
   const storedRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
   if (storedRefreshToken) {
     try {
+      console.log("[auth] Silent refresh via stored refresh token");
       return await refreshAccessToken(storedRefreshToken);
-    } catch {
+    } catch (error) {
+      console.log("[auth] Refresh token mislukt, fallback naar SSO/PKCE", error);
       localStorage.removeItem(REFRESH_TOKEN_KEY);
+      // Niet meteen gooien — probeer SSO/PKCE hieronder
     }
   }
 
@@ -98,7 +102,7 @@ export async function getAccessToken(): Promise<string> {
     });
 
     cachedToken = bootstrapToken;
-    tokenExpiry = Date.now() + 3_600_000;
+    tokenExpiry = Date.now() + 28_800_000; // 8 uur
     sessionStorage.setItem(TOKEN_KEY, bootstrapToken);
     sessionStorage.setItem(TOKEN_EXPIRY_KEY, tokenExpiry.toString());
     sessionStorage.setItem(TOKEN_SOURCE_KEY, "sso");
