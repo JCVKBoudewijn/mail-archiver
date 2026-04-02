@@ -2,9 +2,15 @@
  * SSO Authenticatie service.
  * Gebruikt Office.js SSO om een access token te verkrijgen voor Microsoft Graph.
  * Fallback: PKCE authorization code flow via Office dialog.
+ *
+ * Tokens worden opgeslagen in localStorage zodat ze behouden blijven
+ * wanneer de task pane opnieuw geopend wordt (sessionStorage gaat dan verloren).
  */
 
 const CLIENT_ID = "06e23f21-f875-4425-aca3-ccd0b06bb24f";
+const TENANT_ID = "eba9b46b-0bb0-493e-8724-854a60012ad4";
+const TOKEN_ENDPOINT = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`;
+const AUTH_ENDPOINT = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/authorize`;
 
 const GRAPH_SCOPES = [
   "Files.ReadWrite.All",
@@ -13,33 +19,42 @@ const GRAPH_SCOPES = [
   "Mail.ReadWrite.Shared",
 ];
 
+// Alle keys in localStorage zodat ze overleven tussen task pane sessies
 const TOKEN_KEY = "mailsp_token";
 const TOKEN_EXPIRY_KEY = "mailsp_token_expiry";
 const TOKEN_SOURCE_KEY = "mailsp_token_source";
 const REFRESH_TOKEN_KEY = "mailsp_refresh_token";
 const TOKEN_SCOPES_KEY = "mailsp_token_scopes";
+const SSO_FAILED_KEY = "mailsp_sso_failed";
 
-let cachedToken: string | null = sessionStorage.getItem(TOKEN_KEY);
-let tokenExpiry: number = Number(sessionStorage.getItem(TOKEN_EXPIRY_KEY) || "0");
+let cachedToken: string | null = localStorage.getItem(TOKEN_KEY);
+let tokenExpiry: number = Number(localStorage.getItem(TOKEN_EXPIRY_KEY) || "0");
 
-/** Houdt bij of het SSO-token al gefaald heeft voor Graph (401).
- *  Als dat zo is, slaan we SSO over en gaan direct naar PKCE. */
-let ssoFailedForGraph: boolean = false;
+/** Herstelt ssoFailedForGraph uit localStorage */
+let ssoFailedForGraph: boolean = localStorage.getItem(SSO_FAILED_KEY) === "true";
+
+// ── Token opslag helpers ─────────────────────────────────────────────────────
+
+function storeToken(token: string, source: string): void {
+  cachedToken = token;
+  tokenExpiry = Date.now() + 28_800_000; // 8 uur
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(TOKEN_EXPIRY_KEY, tokenExpiry.toString());
+  localStorage.setItem(TOKEN_SOURCE_KEY, source);
+  localStorage.setItem(TOKEN_SCOPES_KEY, JSON.stringify(GRAPH_SCOPES));
+}
 
 /** Check of opgeslagen token voldoende scopes heeft; clear anders */
 function validateTokenScopes(): void {
-  const storedScopesStr = sessionStorage.getItem(TOKEN_SCOPES_KEY);
-  const storedScopes = storedScopesStr ? JSON.parse(storedScopesStr) : [];
-  const currentScopesStr = JSON.stringify(GRAPH_SCOPES.sort());
-  const storedScopesStr2 = JSON.stringify(storedScopes.sort());
-
-  if (currentScopesStr !== storedScopesStr2) {
-    console.log("[auth] Token scopes mismatch — clearing old tokens");
+  const stored = localStorage.getItem(TOKEN_SCOPES_KEY);
+  const storedScopes = stored ? JSON.parse(stored) : [];
+  if (JSON.stringify(GRAPH_SCOPES.sort()) !== JSON.stringify(storedScopes.sort())) {
+    console.log("[auth] Scopes gewijzigd — tokens gewist");
     clearTokenCache(true);
   }
 }
 
-// ── PKCE helpers ──────────────────────────────────────────────────────────────
+// ── PKCE helpers ─────────────────────────────────────────────────────────────
 
 function base64UrlEncode(buffer: ArrayBuffer): string {
   return btoa(String.fromCharCode(...new Uint8Array(buffer)))
@@ -61,39 +76,39 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
   return base64UrlEncode(digest);
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+// ── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Verkrijg een access token via Office SSO.
- * Probeert eerst SSO; bij falen refresh token; daarna PKCE dialog flow.
+ * Verkrijg een access token.
+ * Volgorde: cached → refresh token (stil) → SSO → PKCE dialog.
  */
 export async function getAccessToken(): Promise<string> {
   validateTokenScopes();
 
-  // Zolang token niet verlopen is, gebruik cached
+  // Cached token nog geldig? (5 min marge)
   if (cachedToken && Date.now() < tokenExpiry - 300_000) {
     return cachedToken;
   }
 
-  // Probeer eerst silent refresh via opgeslagen refresh token (geen popup)
+  // Probeer silent refresh via opgeslagen refresh token (geen popup)
   const storedRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
   if (storedRefreshToken) {
     try {
-      console.log("[auth] Silent refresh via stored refresh token");
+      console.log("[auth] Silent refresh via refresh token");
       return await refreshAccessToken(storedRefreshToken);
     } catch (error) {
-      console.log("[auth] Refresh token mislukt, fallback naar SSO/PKCE", error);
+      console.warn("[auth] Refresh token mislukt:", error);
       localStorage.removeItem(REFRESH_TOKEN_KEY);
-      // Niet meteen gooien — probeer SSO/PKCE hieronder
     }
   }
 
-  // Als SSO-token eerder 401 gaf op Graph, sla SSO over en gebruik direct PKCE
+  // SSO eerder gefaald voor Graph? Sla over, direct PKCE.
   if (ssoFailedForGraph) {
-    console.log("[auth] SSO eerder gefaald voor Graph, gebruik PKCE fallback");
+    console.log("[auth] SSO eerder gefaald, direct PKCE");
     return await fallbackToDialogAuth();
   }
 
+  // Probeer SSO
   try {
     const bootstrapToken = await Office.auth.getAccessToken({
       allowSignInPrompt: true,
@@ -101,21 +116,11 @@ export async function getAccessToken(): Promise<string> {
       forMSGraphAccess: true,
     });
 
-    cachedToken = bootstrapToken;
-    tokenExpiry = Date.now() + 28_800_000; // 8 uur
-    sessionStorage.setItem(TOKEN_KEY, bootstrapToken);
-    sessionStorage.setItem(TOKEN_EXPIRY_KEY, tokenExpiry.toString());
-    sessionStorage.setItem(TOKEN_SOURCE_KEY, "sso");
-    sessionStorage.setItem(TOKEN_SCOPES_KEY, JSON.stringify(GRAPH_SCOPES));
+    storeToken(bootstrapToken, "sso");
     return bootstrapToken;
   } catch (error: any) {
     const code = error?.code;
 
-    // 13001: Gebruiker niet ingelogd
-    // 13002: Consent nodig
-    // 13003: Niet-ondersteunde omgeving
-    // 13006: SSO mislukt (geen on-premises AD / intranet zone)
-    // 13012: SSO niet ondersteund in deze context
     if ([13001, 13002, 13003, 13006, 13012].includes(code)) {
       return await fallbackToDialogAuth();
     }
@@ -135,27 +140,18 @@ async function refreshAccessToken(refreshToken: string): Promise<string> {
     scope: GRAPH_SCOPES.join(" ") + " offline_access",
   });
 
-  const response = await fetch(
-    "https://login.microsoftonline.com/eba9b46b-0bb0-493e-8724-854a60012ad4/oauth2/v2.0/token",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
-    }
-  );
+  const response = await fetch(TOKEN_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
 
   if (!response.ok) {
     throw new Error(`Refresh token mislukt (${response.status})`);
   }
 
   const data = await response.json();
-
-  cachedToken = data.access_token;
-  tokenExpiry = Date.now() + 3_600_000;
-  sessionStorage.setItem(TOKEN_KEY, data.access_token);
-  sessionStorage.setItem(TOKEN_EXPIRY_KEY, tokenExpiry.toString());
-  sessionStorage.setItem(TOKEN_SOURCE_KEY, "refresh");
-  sessionStorage.setItem(TOKEN_SCOPES_KEY, JSON.stringify(GRAPH_SCOPES));
+  storeToken(data.access_token, "refresh");
 
   if (data.refresh_token) {
     localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
@@ -174,14 +170,15 @@ async function fallbackToDialogAuth(): Promise<string> {
   const redirectUri = window.location.origin + "/auth-callback.html";
 
   const dialogUrl =
-    `https://login.microsoftonline.com/eba9b46b-0bb0-493e-8724-854a60012ad4/oauth2/v2.0/authorize?` +
+    `${AUTH_ENDPOINT}?` +
     `client_id=${encodeURIComponent(CLIENT_ID)}` +
     `&response_type=code` +
     `&scope=${encodeURIComponent(GRAPH_SCOPES.join(" ") + " offline_access")}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&code_challenge=${challenge}` +
     `&code_challenge_method=S256` +
-    `&state=${state}`;
+    `&state=${state}` +
+    `&prompt=none`; // Probeer silent auth, geen login-scherm als sessie al bestaat
 
   return new Promise((resolve, reject) => {
     Office.context.ui.displayDialogAsync(
@@ -212,14 +209,8 @@ async function fallbackToDialogAuth(): Promise<string> {
                 return;
               }
 
-              // Wissel de code in voor een access token
               const { accessToken, refreshToken } = await exchangeCodeForToken(message.code, verifier, redirectUri);
-              cachedToken = accessToken;
-              tokenExpiry = Date.now() + 3_600_000;
-              sessionStorage.setItem(TOKEN_KEY, accessToken);
-              sessionStorage.setItem(TOKEN_EXPIRY_KEY, tokenExpiry.toString());
-              sessionStorage.setItem(TOKEN_SOURCE_KEY, "pkce");
-              sessionStorage.setItem(TOKEN_SCOPES_KEY, JSON.stringify(GRAPH_SCOPES));
+              storeToken(accessToken, "pkce");
               if (refreshToken) {
                 localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
               }
@@ -254,14 +245,11 @@ async function exchangeCodeForToken(
     code_verifier: verifier,
   });
 
-  const response = await fetch(
-    "https://login.microsoftonline.com/eba9b46b-0bb0-493e-8724-854a60012ad4/oauth2/v2.0/token",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
-    }
-  );
+  const response = await fetch(TOKEN_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
@@ -272,14 +260,14 @@ async function exchangeCodeForToken(
   return { accessToken: data.access_token, refreshToken: data.refresh_token };
 }
 
-/** Reset de token cache (bijv. bij logout of token error) */
+/** Reset de token cache */
 export function clearTokenCache(includeRefreshToken = false): void {
   cachedToken = null;
   tokenExpiry = 0;
-  sessionStorage.removeItem(TOKEN_KEY);
-  sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
-  sessionStorage.removeItem(TOKEN_SOURCE_KEY);
-  sessionStorage.removeItem(TOKEN_SCOPES_KEY);
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(TOKEN_EXPIRY_KEY);
+  localStorage.removeItem(TOKEN_SOURCE_KEY);
+  localStorage.removeItem(TOKEN_SCOPES_KEY);
   if (includeRefreshToken) {
     localStorage.removeItem(REFRESH_TOKEN_KEY);
   }
@@ -287,13 +275,14 @@ export function clearTokenCache(includeRefreshToken = false): void {
 
 /**
  * Markeer dat het SSO-token niet werkt voor Graph API (401).
- * Volgende getAccessToken() calls zullen SSO overslaan en direct PKCE gebruiken.
+ * Persistent in localStorage zodat het niet vergeten wordt bij heropen.
  */
 export function markSsoFailedForGraph(): void {
   ssoFailedForGraph = true;
+  localStorage.setItem(SSO_FAILED_KEY, "true");
 }
 
 /** Geeft aan of het huidige token via SSO is verkregen */
 export function isTokenFromSso(): boolean {
-  return sessionStorage.getItem(TOKEN_SOURCE_KEY) === "sso";
+  return localStorage.getItem(TOKEN_SOURCE_KEY) === "sso";
 }
